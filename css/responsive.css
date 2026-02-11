@@ -1,0 +1,138 @@
+/* ==========================================================================
+   responsive.css - Responsive breakpoints and mobile-first adjustments
+   NFT Metadata Scanner
+   ========================================================================== */
+
+/* ---------- Mobile-First Base (< 480px) ---------- */
+
+.header-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+}
+
+.logo-text {
+    font-size: var(--font-size-lg);
+}
+
+.input-group {
+    flex-direction: column;
+}
+
+.input-group .btn {
+    width: 100%;
+}
+
+.footer-content {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--space-sm);
+}
+
+.results-grid {
+    grid-template-columns: 1fr;
+}
+
+/* ---------- Small devices (480px+) ---------- */
+@media (min-width: 480px) {
+    .input-group {
+        flex-direction: row;
+    }
+
+    .input-group .btn {
+        width: auto;
+    }
+}
+
+/* ---------- Tablet (640px+) ---------- */
+@media (min-width: 640px) {
+    .header-content {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .logo-text {
+        font-size: var(--font-size-xl);
+    }
+
+    .footer-content {
+        flex-direction: row;
+        text-align: left;
+    }
+
+    .container {
+        padding: 0 var(--space-lg);
+    }
+}
+
+/* ---------- Desktop (768px+) ---------- */
+@media (min-width: 768px) {
+    :root {
+        --space-lg: 2rem;
+        --space-xl: 2.5rem;
+    }
+
+    .results-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .site-main {
+        padding: var(--space-2xl) 0;
+    }
+}
+
+/* ---------- Large Desktop (1024px+) ---------- */
+@media (min-width: 1024px) {
+    .container {
+        padding: 0 var(--space-xl);
+    }
+}
+
+/* ---------- Reduced Motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ---------- High Contrast / Forced Colors ---------- */
+@media (forced-colors: active) {
+    .btn {
+        border: 1px solid ButtonText;
+    }
+
+    .input-field {
+        border: 1px solid ButtonText;
+    }
+
+    .pipeline-step[data-status="active"] {
+        border: 1px solid Highlight;
+    }
+}
+
+/* ---------- Print ---------- */
+@media print {
+    .site-header,
+    .site-footer,
+    .input-section,
+    .api-key-section,
+    .about-panel,
+    .skip-link {
+        display: none;
+    }
+
+    body {
+        color: #000;
+        background: #fff;
+    }
+
+    .card {
+        border: 1px solid #ccc;
+        box-shadow: none;
+    }
+}

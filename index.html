@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- SEO -->
+    <title>NFT Metadata Scanner - Secure Validation &amp; Preview Tool</title>
+    <meta name="description" content="Validate and preview NFT metadata securely. Supports Enjin Blockchain, IPFS, and standard NFT formats with integrated VirusTotal security scanning.">
+    <meta name="keywords" content="NFT, metadata, validator, Enjin, IPFS, security, blockchain, VirusTotal">
+    <meta name="author" content="bladzv">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="NFT Metadata Scanner">
+    <meta property="og:description" content="Secure NFT metadata validation and preview tool with VirusTotal integration.">
+    <meta property="og:type" content="website">
+
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self';
+                   style-src 'self';
+                   img-src 'self' data: https: blob:;
+                   connect-src 'self' https://www.virustotal.com https://ipfs.io https://cloudflare-ipfs.com https://gateway.pinata.cloud https://api.allorigins.win;
+                   font-src 'self';
+                   object-src 'none';
+                   base-uri 'self';
+                   form-action 'self';
+                   frame-ancestors 'none';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+    <!-- Skip Navigation Link (Accessibility) -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <!-- Header -->
+    <header class="site-header" role="banner">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <h1 class="logo-text">
+                        <span class="logo-icon" aria-hidden="true">&#x1f6e1;</span>
+                        NFT Metadata Scanner
+                    </h1>
+                    <p class="tagline">Secure validation &amp; preview for NFT metadata</p>
+                </div>
+                <nav class="header-nav" aria-label="Primary navigation">
+                    <button class="btn btn-ghost btn-sm" id="about-btn" type="button" aria-expanded="false" aria-controls="about-section">
+                        About
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content" class="site-main" role="main">
+        <div class="container">
+
+            <!-- About Section (Collapsible) -->
+            <section id="about-section" class="about-panel" hidden aria-labelledby="about-heading">
+                <div class="card">
+                    <h2 id="about-heading">About This Tool</h2>
+                    <p>NFT Metadata Scanner validates NFT metadata URLs, scans for security threats using VirusTotal, and safely previews metadata and media. It supports <strong>Enjin Blockchain</strong>, <strong>ERC-721</strong>, and <strong>ERC-1155</strong> metadata standards.</p>
+                    <ul class="feature-list">
+                        <li>HTTPS and IPFS URL validation</li>
+                        <li>VirusTotal malware scanning integration</li>
+                        <li>Metadata standard detection and parsing</li>
+                        <li>Safe media preview with CSP protection</li>
+                        <li>Client-side only &mdash; your data never leaves your browser</li>
+                    </ul>
+                    <button class="btn btn-ghost btn-sm" id="about-close-btn" type="button">Close</button>
+                </div>
+            </section>
+
+            <!-- Input Section -->
+            <section class="input-section" aria-labelledby="input-heading">
+                <div class="card">
+                    <h2 id="input-heading" class="sr-only">Enter NFT Metadata URL</h2>
+                    <form id="scan-form" class="scan-form" novalidate>
+                        <label for="url-input" class="input-label">NFT Metadata URL</label>
+                        <div class="input-group">
+                            <input
+                                type="url"
+                                id="url-input"
+                                class="input-field"
+                                placeholder="https://example.com/metadata.json or ipfs://Qm..."
+                                autocomplete="url"
+                                spellcheck="false"
+                                required
+                                aria-describedby="url-help url-error"
+                            >
+                            <button type="submit" id="scan-btn" class="btn btn-primary">
+                                <span class="btn-text">Scan</span>
+                                <span class="btn-loading" hidden aria-hidden="true">
+                                    <span class="spinner" aria-hidden="true"></span>
+                                    Scanning...
+                                </span>
+                            </button>
+                        </div>
+                        <p id="url-help" class="input-help">Supports HTTPS and IPFS URLs. Enter a link to NFT metadata JSON.</p>
+                        <p id="url-error" class="input-error" role="alert" aria-live="polite" hidden></p>
+                    </form>
+
+                    <!-- Example URLs -->
+                    <div class="example-urls">
+                        <span class="example-label">Examples:</span>
+                        <button type="button" class="btn btn-link example-btn" data-url="https://raw.githubusercontent.com/enjin/metadata-samples/main/enjin-example.json">Enjin</button>
+                        <button type="button" class="btn btn-link example-btn" data-url="ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG">IPFS</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- API Key Section (Optional) -->
+            <section class="api-key-section" aria-labelledby="apikey-heading">
+                <details class="card card-subtle">
+                    <summary id="apikey-heading">
+                        <span class="details-icon" aria-hidden="true">&#x1f511;</span>
+                        VirusTotal API Key (Optional)
+                    </summary>
+                    <div class="details-content">
+                        <p class="input-help">Providing an API key enables security scanning. Without it, VirusTotal scans will be skipped.</p>
+                        <div class="input-group">
+                            <input
+                                type="password"
+                                id="apikey-input"
+                                class="input-field"
+                                placeholder="Enter your VirusTotal API key"
+                                autocomplete="off"
+                                spellcheck="false"
+                                aria-describedby="apikey-help"
+                            >
+                            <button type="button" id="apikey-save-btn" class="btn btn-secondary btn-sm">Save</button>
+                        </div>
+                        <p id="apikey-help" class="input-help">Key is stored in memory only and never sent to any server besides VirusTotal.</p>
+                    </div>
+                </details>
+            </section>
+
+            <!-- Validation Pipeline -->
+            <section id="pipeline-section" class="pipeline-section" aria-labelledby="pipeline-heading" hidden>
+                <div class="card">
+                    <h2 id="pipeline-heading">Validation Pipeline</h2>
+                    <ol class="pipeline-steps" id="pipeline-steps" role="list" aria-live="polite">
+                        <li class="pipeline-step" data-step="url-validation" aria-label="URL Format Validation">
+                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
+                            <span class="step-label">URL Format Validation</span>
+                            <span class="step-status sr-only">pending</span>
+                        </li>
+                        <li class="pipeline-step" data-step="url-scan" aria-label="URL Security Scan">
+                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
+                            <span class="step-label">URL Security Scan (VirusTotal)</span>
+                            <span class="step-status sr-only">pending</span>
+                        </li>
+                        <li class="pipeline-step" data-step="metadata-fetch" aria-label="Metadata Fetch">
+                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
+                            <span class="step-label">Metadata Fetch</span>
+                            <span class="step-status sr-only">pending</span>
+                        </li>
+                        <li class="pipeline-step" data-step="metadata-parse" aria-label="Metadata Parsing">
+                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
+                            <span class="step-label">Metadata Parsing &amp; Validation</span>
+                            <span class="step-status sr-only">pending</span>
+                        </li>
+                        <li class="pipeline-step" data-step="media-scan" aria-label="Media Security Scan">
+                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
+                            <span class="step-label">Media URL Security Scan</span>
+                            <span class="step-status sr-only">pending</span>
+                        </li>
+                        <li class="pipeline-step" data-step="media-display" aria-label="Media Display">
+                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
+                            <span class="step-label">Media Display</span>
+                            <span class="step-status sr-only">pending</span>
+                        </li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="results-section" class="results-section" aria-labelledby="results-heading" hidden>
+                <h2 id="results-heading" class="sr-only">Scan Results</h2>
+
+                <div class="results-grid">
+                    <!-- Metadata Panel -->
+                    <div class="card results-card" id="metadata-panel">
+                        <h3 class="card-title">Metadata</h3>
+                        <div id="metadata-content" class="metadata-content">
+                            <p class="placeholder-text">Metadata will appear here after scanning.</p>
+                        </div>
+                        <details class="raw-json-details" id="raw-json-details" hidden>
+                            <summary>Raw JSON</summary>
+                            <pre class="raw-json"><code id="raw-json-content"></code></pre>
+                        </details>
+                    </div>
+
+                    <!-- Media Preview Panel -->
+                    <div class="card results-card" id="media-panel">
+                        <h3 class="card-title">Media Preview</h3>
+                        <div id="media-content" class="media-content">
+                            <p class="placeholder-text">Media preview will appear here after scanning.</p>
+                        </div>
+                        <div id="media-info" class="media-info" hidden></div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer" role="contentinfo">
+        <div class="container">
+            <div class="footer-content">
+                <p class="footer-text">
+                    NFT Metadata Scanner &mdash; Client-side security tool.
+                    Your data never leaves your browser.
+                </p>
+                <nav class="footer-nav" aria-label="Footer navigation">
+                    <a href="https://github.com/bladzv/nft-metadata-scanner" target="_blank" rel="noopener noreferrer">GitHub</a>
+                    <span class="footer-sep" aria-hidden="true">&middot;</span>
+                    <a href="docs/PRD-NFT-Metadata-Scanner.md" target="_blank" rel="noopener noreferrer">Documentation</a>
+                </nav>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript Modules -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

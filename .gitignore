@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Session tracking files
+.github/actions.md
+.github/pr_description.md
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE files
+.vscode/
+.idea/
+
+# Build outputs (if any)
+dist/
+build/
