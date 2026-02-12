@@ -33,11 +33,13 @@ function detectStandard(data) {
         return 'unknown';
     }
 
-    // Enjin: has "properties" object (not "attributes" array)
+    // Check for Enjin characteristics FIRST (higher priority)
+    // Enjin: has media array or fallback_image (most reliable indicators)
+    const hasMediaArray = Array.isArray(data.media) && data.media.length > 0;
+    const hasFallbackImage = typeof data.fallback_image === 'string' && data.fallback_image.trim();
     const hasProperties = data.properties && typeof data.properties === 'object' && !Array.isArray(data.properties);
-    const hasAttributes = Array.isArray(data.attributes);
 
-    if (hasProperties && !hasAttributes) {
+    if (hasMediaArray || hasFallbackImage || hasProperties) {
         return 'enjin';
     }
 
@@ -46,8 +48,8 @@ function detectStandard(data) {
         return 'erc1155';
     }
 
-    // ERC-721: has attributes array
-    if (hasAttributes) {
+    // ERC-721: has attributes array (but not detected as Enjin above)
+    if (Array.isArray(data.attributes)) {
         return 'erc721';
     }
 
@@ -57,6 +59,42 @@ function detectStandard(data) {
     }
 
     return 'unknown';
+}
+
+/**
+ * Gets the primary image URL for a metadata object based on its standard.
+ * @param {Object} data - Parsed metadata object
+ * @param {MetadataStandard} standard - Detected standard
+ * @returns {string|null} Image URL or null if not found
+ */
+function getImageUrl(data, standard) {
+    // Check root-level image first (works for all standards)
+    if (data.image && typeof data.image === 'string') {
+        return data.image;
+    }
+
+    if (standard === 'enjin') {
+        // Enjin-specific image sources
+        if (Array.isArray(data.media) && data.media.length > 0 && data.media[0].url) {
+            return data.media[0].url;
+        }
+
+        if (data.fallback_image && typeof data.fallback_image === 'string') {
+            return data.fallback_image;
+        }
+
+        // Legacy Enjin format with properties
+        if (data.properties && typeof data.properties === 'object') {
+            if (data.properties.thumbnail && typeof data.properties.thumbnail === 'string') {
+                return data.properties.thumbnail;
+            }
+            if (data.properties.fallback_image && typeof data.properties.fallback_image === 'string') {
+                return data.properties.fallback_image;
+            }
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -92,16 +130,11 @@ export function parseMetadata(jsonText) {
     return validateMetadata(data);
 }
 
-/**
- * Validates a parsed metadata object against required fields.
- * @param {Object} data - Parsed JSON metadata object
- * @returns {ParseResult} Validation result
- */
 export function validateMetadata(data) {
     const warnings = [];
     const standard = detectStandard(data);
 
-    // Required fields: name and image are mandatory for all standards
+    // Required fields: name is mandatory for all standards
     if (!data.name || typeof data.name !== 'string') {
         return {
             valid: false,
@@ -112,13 +145,15 @@ export function validateMetadata(data) {
         };
     }
 
-    if (!data.image || typeof data.image !== 'string') {
+    // Image validation: different standards have different image field locations
+    const imageUrl = getImageUrl(data, standard);
+    if (!imageUrl) {
         return {
             valid: false,
             standard,
             raw: data,
             warnings,
-            reason: 'Missing required field: "image"',
+            reason: 'Missing required field: "image" (or equivalent media/fallback_image)',
         };
     }
 
@@ -127,8 +162,11 @@ export function validateMetadata(data) {
         warnings.push('Missing optional field: "description"');
     }
 
-    if (standard === 'enjin' && !data.properties) {
-        warnings.push('Enjin metadata typically includes "properties"');
+    if (standard === 'enjin') {
+        // Enjin should have media array or fallback_image
+        if (!Array.isArray(data.media) && !data.fallback_image && !(data.properties && (data.properties.thumbnail || data.properties.fallback_image))) {
+            warnings.push('Enjin metadata typically includes "media" array or "fallback_image"');
+        }
     }
 
     if (standard === 'erc721' && !Array.isArray(data.attributes)) {
@@ -140,7 +178,7 @@ export function validateMetadata(data) {
         standard,
         name: String(data.name),
         description: data.description ? String(data.description) : undefined,
-        image: String(data.image),
+        image: imageUrl,
         properties: data.properties ?? undefined,
         attributes: data.attributes ?? undefined,
         raw: data,
@@ -161,4 +199,73 @@ export function getStandardLabel(standard) {
         unknown: 'Unknown Standard',
     };
     return labels[standard] ?? 'Unknown Standard';
+}
+
+/**
+ * Extracts all URLs from metadata based on the detected standard.
+ * @param {Object} data - Parsed metadata object
+ * @param {MetadataStandard} standard - Detected metadata standard
+ * @returns {Array<{url: string, field: string, type: string}>} Array of URL objects with context
+ */
+export function extractAllUrls(data, standard) {
+    const urls = [];
+
+    if (!data || typeof data !== 'object') {
+        return urls;
+    }
+
+    // Helper function to add URL if valid
+    const addUrl = (url, field, type) => {
+        if (typeof url === 'string' && url.trim()) {
+            urls.push({ url: url.trim(), field, type });
+        }
+    };
+
+    // Common fields across all standards
+    addUrl(data.image, 'image', 'media');
+    addUrl(data.external_url, 'external_url', 'external');
+    addUrl(data.animation_url, 'animation_url', 'media');
+
+    if (standard === 'enjin') {
+        // Enjin-specific fields at root level
+        addUrl(data.fallback_image, 'fallback_image', 'media');
+
+        // Media array at root level
+        if (Array.isArray(data.media)) {
+            data.media.forEach((media, index) => {
+                if (typeof media === 'object' && media.url) {
+                    addUrl(media.url, `media[${index}].url`, 'media');
+                }
+            });
+        }
+
+        // Legacy Enjin format with properties
+        if (data.properties && typeof data.properties === 'object') {
+            addUrl(data.properties.thumbnail, 'properties.thumbnail', 'media');
+            addUrl(data.properties.fallback_image, 'properties.fallback_image', 'media');
+
+            // Media array in properties (legacy)
+            if (Array.isArray(data.properties.media)) {
+                data.properties.media.forEach((media, index) => {
+                    if (typeof media === 'object' && media.url) {
+                        addUrl(media.url, `properties.media[${index}].url`, 'media');
+                    }
+                });
+            }
+        }
+    } else if (standard === 'erc721' || standard === 'erc1155') {
+        // ERC-721/1155 attributes (could contain URLs)
+        if (Array.isArray(data.attributes)) {
+            data.attributes.forEach((attr, index) => {
+                if (typeof attr === 'object' && attr.value && typeof attr.value === 'string') {
+                    // Check if value looks like a URL
+                    if (attr.value.startsWith('http') || attr.value.startsWith('ipfs://')) {
+                        addUrl(attr.value, `attributes[${index}].value`, 'attribute');
+                    }
+                }
+            });
+        }
+    }
+
+    return urls;
 }
