@@ -19,16 +19,14 @@
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self';
                    script-src 'self';
-                   style-src 'self';
+                   style-src 'self' 'unsafe-inline';
                    img-src 'self' data: https: blob:;
                    connect-src 'self' https:;
                    font-src 'self';
                    object-src 'none';
                    base-uri 'self';
-                   form-action 'self';
-                   frame-ancestors 'none';">
+                   form-action 'self';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
     <!-- Stylesheets -->
@@ -95,17 +93,29 @@
                     <h2 id="input-heading" class="sr-only">Enter NFT Metadata URL</h2>
                     <form id="scan-form" class="scan-form" novalidate>
                         <label for="url-input" class="input-label">NFT Metadata URL</label>
+                        <p id="url-help" class="input-help">Supports HTTPS and IPFS URLs. Enter a link to NFT metadata JSON.</p>
+                        <!-- Example URLs -->
+                        <div class="example-urls">
+                            <span class="example-label">Examples:</span>
+                            <button type="button" class="btn btn-link example-btn" data-url="https://cdn.enjin.io/mint/meta/4110-1.json">HTTPS</button>
+                            <button type="button" class="btn btn-link example-btn" data-url="ipfs://QmRmvvSYTEGhPtbZsibs4TevwpATeJqdV2bpCohckx3YBp/4129-1.json">IPFS</button>
+                        </div>
                         <div class="input-group">
-                            <input
-                                type="url"
-                                id="url-input"
-                                class="input-field"
-                                placeholder="https://example.com/metadata.json or ipfs://Qm..."
-                                autocomplete="url"
-                                spellcheck="false"
-                                required
-                                aria-describedby="url-help url-error"
-                            >
+                            <div class="input-field-wrapper">
+                                <input
+                                    type="url"
+                                    id="url-input"
+                                    class="input-field"
+                                    placeholder="https://example.com/metadata.json or ipfs://Qm..."
+                                    autocomplete="url"
+                                    spellcheck="false"
+                                    required
+                                    aria-describedby="url-help url-error"
+                                >
+                                <button type="button" id="url-clear-btn" class="input-clear-btn" aria-label="Clear URL input" hidden>
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
                             <button type="submit" id="scan-btn" class="btn btn-primary">
                                 <span class="btn-text">Scan</span>
                                 <span class="btn-loading" hidden aria-hidden="true">
@@ -114,25 +124,8 @@
                                 </span>
                             </button>
                         </div>
-                        <p id="url-help" class="input-help">Supports HTTPS and IPFS URLs. Enter a link to NFT metadata JSON.</p>
-                        <p id="url-error" class="input-error" role="alert" aria-live="polite" hidden></p>
+                        <p id="url-error" class="input-error hidden" role="alert" aria-live="polite"></p>
 
-                        <!-- Example URLs (moved up so they appear under the help text) -->
-                        <div class="example-urls">
-                            <span class="example-label">Examples:</span>
-                            <button type="button" class="btn btn-link example-btn" data-url="https://raw.githubusercontent.com/enjin/metadata-samples/main/enjin-example.json">Enjin</button>
-                            <button type="button" class="btn btn-link example-btn" data-url="ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG">IPFS</button>
-                        </div>
-
-                        <!-- Scan Mode Toggle -->
-                        <div class="scan-mode-toggle">
-                            <label class="toggle-label">
-                                <input type="checkbox" id="scan-all-urls" class="toggle-input">
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-text">Scan all URLs in metadata</span>
-                            </label>
-                            <p class="input-help">When enabled, scans all URLs found in metadata (image, external links, media, etc.). When disabled, only scans the main image URL.</p>
-                        </div>
                     </form>
 
                     <!-- examples moved above the help text -->
@@ -141,6 +134,7 @@
                     <div class="api-key-inline">
                         <div class="api-key-card">
                             <label for="apikey-input" class="input-label">VirusTotal API Key</label>
+                            <p id="apikey-help" class="input-help">Your key is stored locally in your browser only. The key is used to call VirusTotal directly from your browser.</p>
                             <p class="input-help">An API key is required for VirusTotal security scanning. This tool requires a valid VirusTotal API key to perform URL and media security analyses; without a saved key, scanning is disabled.</p>
                             <div class="input-group">
                                 <input
@@ -151,12 +145,12 @@
                                     required
                                     autocomplete="off"
                                     spellcheck="false"
-                                    aria-describedby="apikey-help"
+                                    aria-describedby="apikey-help apikey-error"
                                 >
                                 <button type="button" id="apikey-action-btn" class="btn btn-success btn-sm api-key-action">Save</button>
                                 <button type="button" id="apikey-quota-btn" class="btn btn-secondary btn-sm apikey-quota-btn" disabled>Show Quota</button>
                             </div>
-                            <p id="apikey-help" class="input-help">Your key is stored locally in your browser only. The key is used to call VirusTotal directly from your browser.</p>
+                            <p id="apikey-error" class="input-error hidden" role="alert" aria-live="polite"></p>
                             <!-- saved-key display removed (checkmark moved into input) -->
                         </div>
                     </div>
@@ -222,7 +216,7 @@
                     <div class="modal-body">
                         <p>Are you sure you want to remove the saved API key? You will need to re-enter it to perform security scans.</p>
                     </div>
-                    <div class="modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <div class="modal-footer modal-footer-actions">
                         <button class="btn btn-secondary" id="remove-confirm-no-btn" type="button">Cancel</button>
                         <button class="btn btn-danger" id="remove-confirm-yes-btn" type="button">Remove</button>
                     </div>
@@ -231,77 +225,54 @@
 
             <!-- Back Button (shown on results page) -->
             <div id="back-button-container" class="back-button-container" hidden>
-                <button type="button" id="back-btn" class="btn btn-secondary">
+                <button type="button" id="back-btn" class="btn btn-secondary btn-sm">
                     <span aria-hidden="true">← </span>Back to Home
                 </button>
             </div>
 
-            <!-- Validation Pipeline -->
-            <section id="pipeline-section" class="pipeline-section" aria-labelledby="pipeline-heading" hidden>
-                <div class="card">
-                    <h2 id="pipeline-heading">Validation Pipeline</h2>
-                    <ol class="pipeline-steps" id="pipeline-steps" role="list" aria-live="polite">
-                        <li class="pipeline-step" data-step="url-validation" aria-label="URL Format Validation">
-                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
-                            <span class="step-label">URL Format Validation</span>
-                            <span class="step-status sr-only">pending</span>
-                        </li>
-                        <li class="pipeline-step" data-step="url-scan" aria-label="URL Security Scan">
-                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
-                            <span class="step-label">URL Security Scan (VirusTotal)</span>
-                            <span class="step-status sr-only">pending</span>
-                        </li>
-                        <li class="pipeline-step" data-step="metadata-fetch" aria-label="Metadata Fetch">
-                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
-                            <span class="step-label">Metadata Fetch</span>
-                            <span class="step-status sr-only">pending</span>
-                        </li>
-                        <li class="pipeline-step" data-step="metadata-parse" aria-label="Metadata Parsing">
-                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
-                            <span class="step-label">Metadata Parsing &amp; Validation</span>
-                            <span class="step-status sr-only">pending</span>
-                        </li>
-                        <li class="pipeline-step" data-step="media-scan" aria-label="Media Display">
-                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
-                            <span class="step-label">Media Display</span>
-                            <span class="step-status sr-only">pending</span>
-                        </li>
-                        <li class="pipeline-step" data-step="media-display" aria-label="Media Display">
-                            <span class="step-icon" aria-hidden="true">&#x23FA;</span>
-                            <span class="step-label">Media Display</span>
-                            <span class="step-status sr-only">pending</span>
-                        </li>
-                    </ol>
-                </div>
+            <!-- Scan Results (steps rendered dynamically by JS) -->
+            <section id="results-container" class="results-container" hidden aria-label="Scan Results" role="region" aria-live="polite">
             </section>
 
-            <!-- Results Section -->
-            <section id="results-section" class="results-section" aria-labelledby="results-heading" hidden>
-                <h2 id="results-heading" class="sr-only">Scan Results</h2>
-
-                <div class="results-grid">
-                    <!-- Metadata Panel -->
-                    <div class="card results-card" id="metadata-panel">
-                        <h3 class="card-title">Metadata</h3>
-                        <div id="metadata-content" class="metadata-content">
-                            <p class="placeholder-text">Metadata will appear here after scanning.</p>
-                        </div>
-                        <details class="raw-json-details" id="raw-json-details" hidden>
+            <!-- VirusTotal Analysis Detail Modal -->
+            <div id="vt-detail-modal" class="modal-overlay" hidden aria-labelledby="vt-detail-heading" role="dialog">
+                <div class="modal-content modal-vt-detail" id="vt-detail-modal-content">
+                    <div class="modal-header">
+                        <h2 id="vt-detail-heading">VirusTotal Analysis Details</h2>
+                        <button class="modal-close-btn" id="vt-detail-close-btn" type="button" aria-label="Close modal">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="vt-detail-parsed"></div>
+                        <details class="raw-json-details">
                             <summary>Raw JSON</summary>
-                            <pre class="raw-json"><code id="raw-json-content"></code></pre>
+                            <pre class="raw-json"><code id="vt-detail-json"></code></pre>
                         </details>
                     </div>
-
-                    <!-- Media Preview Panel -->
-                    <div class="card results-card" id="media-panel">
-                        <h3 class="card-title">Media Preview</h3>
-                        <div id="media-content" class="media-content">
-                            <p class="placeholder-text">Media preview will appear here after scanning.</p>
-                        </div>
-                        <div id="media-info" class="media-info" hidden></div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" id="vt-detail-close-footer" type="button">Close</button>
                     </div>
                 </div>
-            </section>
+            </div>
+
+            <!-- Media Preview Modal -->
+            <div id="media-preview-modal" class="modal-overlay" hidden aria-labelledby="media-preview-heading" role="dialog">
+                <div class="modal-content modal-media" id="media-preview-modal-content">
+                    <div class="modal-header">
+                        <h2 id="media-preview-heading">Media Preview</h2>
+                        <button class="modal-close-btn" id="media-preview-close-btn" type="button" aria-label="Close modal">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body modal-body-media">
+                        <img id="media-preview-img" alt="NFT Media Preview" />
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" id="media-preview-close-footer" type="button">Close</button>
+                    </div>
+                </div>
+            </div>
 
         </div>
     </main>
