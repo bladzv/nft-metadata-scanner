@@ -7,6 +7,8 @@
 
 import { logError, logInfo, safeAsync } from '../utils/error-handler.js';
 
+import { getGateways } from '../utils/ipfs-utils.js';
+
 /** @type {number} Fetch timeout in milliseconds */
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -30,39 +32,89 @@ const CORS_PROXY_URLS = [
 
 /**
  * Fetches metadata JSON from a URL, with CORS proxy fallback.
- * Tries a direct fetch first; falls back to allorigins proxy on CORS error.
+ * For IPFS URLs, tries all available gateways first; falls back to CORS proxies on failure.
  * @param {string} url - The resolved HTTPS URL to fetch metadata from
  * @returns {Promise<FetchResult>} Fetch result with raw text or error
  */
 export async function fetchMetadataJSON(url) {
-    // Attempt 1: direct fetch
-    const directResult = await attemptFetch(url);
-    if (directResult.success) {
-        return directResult;
-    }
-
-    // Attempt 2+: CORS proxy fallbacks
-    logInfo('Direct fetch failed, trying CORS proxies', { url, error: directResult.error });
-
-    for (const proxyUrl of CORS_PROXY_URLS) {
-        const proxyResult = await attemptFetchViaProxy(url, proxyUrl);
-        if (proxyResult.success) {
-            return { ...proxyResult, usedProxy: true };
+    const gateways = getGateways();
+    const isIPFSGateway = gateways.some(gateway => url.startsWith(gateway));
+    
+    if (isIPFSGateway) {
+        // Extract CID path from the gateway URL
+        const ipfsIndex = url.indexOf('/ipfs/');
+        if (ipfsIndex === -1) {
+            return {
+                success: false,
+                error: 'Invalid IPFS gateway URL format',
+            };
         }
-        logInfo('Proxy failed, trying next one', { proxyUrl, error: proxyResult.error });
+        const cidPath = url.slice(ipfsIndex + 6); // Everything after '/ipfs/'
+        
+        // Try each IPFS gateway in order
+        for (const gateway of gateways) {
+            const gatewayUrl = gateway + cidPath;
+            const result = await attemptFetch(gatewayUrl);
+            if (result.success) {
+                return result;
+            }
+            logInfo('IPFS gateway failed, trying next', { gateway, cidPath, error: result.error });
+        }
+        
+        // All gateways failed - try CORS proxies with the last gateway URL
+        const proxyTargetUrl = gateways[gateways.length - 1] + cidPath;
+        logInfo('All IPFS gateways failed, trying CORS proxies', { proxyTargetUrl });
+        
+        for (const proxyBaseUrl of CORS_PROXY_URLS) {
+            const proxyResult = await attemptFetchViaProxy(proxyTargetUrl, proxyBaseUrl);
+            if (proxyResult.success) {
+                return { ...proxyResult, usedProxy: true };
+            }
+            logInfo('Proxy failed, trying next one', { proxyBaseUrl, error: proxyResult.error });
+        }
+        
+        // All attempts failed
+        logError('FetchError', 'All IPFS gateway and proxy attempts failed', {
+            url,
+            cidPath,
+            gatewayErrors: 'All gateways failed',
+            proxyErrors: 'All proxies failed',
+        });
+        
+        return {
+            success: false,
+            error: 'Could not fetch metadata from any IPFS gateway. The content may be unavailable, all gateways may be down, or CORS restrictions are blocking access.',
+        };
+    } else {
+        // Non-IPFS URL: use existing logic
+        const directResult = await attemptFetch(url);
+        if (directResult.success) {
+            return directResult;
+        }
+
+        // Attempt 2+: CORS proxy fallbacks
+        logInfo('Direct fetch failed, trying CORS proxies', { url, error: directResult.error });
+
+        for (const proxyBaseUrl of CORS_PROXY_URLS) {
+            const proxyResult = await attemptFetchViaProxy(url, proxyBaseUrl);
+            if (proxyResult.success) {
+                return { ...proxyResult, usedProxy: true };
+            }
+            logInfo('Proxy failed, trying next one', { proxyBaseUrl, error: proxyResult.error });
+        }
+
+        // All attempts failed
+        logError('FetchError', 'All fetch attempts failed', {
+            url,
+            directError: directResult.error,
+            proxyErrors: 'All proxies failed',
+        });
+
+        return {
+            success: false,
+            error: 'Could not fetch metadata. The server may be unreachable, blocking requests, or all proxy services are unavailable.',
+        };
     }
-
-    // All attempts failed
-    logError('FetchError', 'All fetch attempts failed', {
-        url,
-        directError: directResult.error,
-        proxyErrors: 'All proxies failed',
-    });
-
-    return {
-        success: false,
-        error: 'Could not fetch metadata. The server may be unreachable, blocking requests, or all proxy services are unavailable.',
-    };
 }
 
 /**

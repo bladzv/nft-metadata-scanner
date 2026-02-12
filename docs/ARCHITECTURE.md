@@ -1,5 +1,7 @@
 # Architecture Guide
 
+> **Note:** This document was created as part of the project planning phase and serves as a template/reference for future projects. The current implementation may not fully align with all details described herein.
+
 ## Overview
 
 The NFT Metadata Scanner is a client-side static web application built with vanilla JavaScript, HTML5, and CSS3. It provides secure validation and preview of NFT metadata and associated media from URLs, with a focus on Enjin Blockchain NFT standards.

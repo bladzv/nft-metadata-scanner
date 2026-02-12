@@ -1,6 +1,8 @@
 # Project Management Plan
 ## NFT Metadata Scanner - Static Web App
 
+> **Note:** This document was created as part of the project planning phase and serves as a template/reference for future projects. The current implementation may not fully align with all details described herein.
+
 ---
 
 ## Document Information
