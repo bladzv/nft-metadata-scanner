@@ -1,5 +1,7 @@
 # Security Policy
 
+> **Note:** This document was created as part of the project planning phase and serves as a template/reference for future projects. The current implementation may not fully align with all details described herein.
+
 ## Overview
 
 The NFT Metadata Scanner prioritizes security in all aspects of its design and implementation. As a client-side web application that handles user-provided URLs and displays external content, we implement comprehensive security measures to protect users from malicious content and prevent security vulnerabilities.

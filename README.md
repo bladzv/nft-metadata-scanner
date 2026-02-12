@@ -1,6 +1,6 @@
 # NFT Metadata Scanner
 
-> **⚠️ This project is under active development.** It is a personal portfolio project being built with the help of AI coding assistants. Features may be incomplete, and breaking changes are expected.
+> **This is a personal portfolio project demonstrating secure web application development with AI assistance.**
 
 🛡️ A secure, client-side web application for validating and previewing NFT metadata. Supports **Enjin Blockchain**, **ERC-721**, and **ERC-1155** metadata standards with integrated **VirusTotal** security scanning.
 
@@ -13,10 +13,13 @@
 - 📱 **Responsive Design** — Mobile-first layout for phones, tablets, and desktops
 - 🚫 **Zero Backend** — Everything runs client-side; your data never leaves your browser
 - ♿ **Accessible** — Keyboard navigable, screen-reader friendly, WCAG 2.1 AA target
+- 🌐 **IPFS Support** — Automatic gateway fallback for reliable IPFS metadata fetching
 
 ## Live Demo
 
-Coming soon — will be deployed to GitHub Pages.
+This project is hosted on GitHub Pages and can be accessed at: https://bladzv.github.io/nft-metadata-scanner/
+
+If the live demo is not available, you can serve the files locally as described below.
 
 ## Quick Start
 
@@ -43,40 +46,54 @@ Open `http://localhost:8000` in your browser.
 4. Review metadata details and media preview
 
 ## Project Structure
-
 ```
 nft-metadata-scanner/
-├── index.html                 # Main application page
+├── index.html                        # Main application page
 ├── css/
-│   ├── main.css               # Core styles & CSS variables
-│   ├── components.css         # Reusable UI components
-│   └── responsive.css         # Responsive breakpoints
+│   ├── components.css               # Reusable UI components
+│   ├── main.css                     # Core styles & CSS variables
+│   └── responsive.css               # Responsive breakpoints
 ├── js/
-│   ├── main.js                # Application entry point & pipeline orchestration
-│   ├── validators/
-│   │   ├── url-validator.js       # URL format & security validation
-│   │   ├── metadata-parser.js     # JSON parsing & standard detection
-│   │   └── security-scanner.js    # VirusTotal API integration
+│   ├── main.js                      # Application entry point & pipeline orchestration
 │   ├── fetchers/
-│   │   ├── metadata-fetcher.js    # Metadata JSON fetching with CORS fallback
-│   │   └── media-fetcher.js       # Image fetching & validation
-│   └── ui/
-│       ├── status-display.js      # Validation pipeline UI
-│       ├── metadata-display.js    # Metadata rendering
-│       └── media-display.js       # Image preview rendering
+│   │   ├── metadata-fetcher.js      # Metadata JSON fetching with CORS & gateway fallback
+│   │   └── media-fetcher.js         # Image fetching & validation
+│   ├── validators/
+│   │   ├── metadata-parser.js       # JSON parsing & standard detection
+│   │   ├── security-scanner.js      # VirusTotal API integration
+│   │   └── url-validator.js         # URL format & security validation
+│   ├── ui/
+│   │   ├── metadata-display.js      # Metadata rendering
+│   │   ├── media-display.js         # Image preview rendering
+│   │   └── status-display.js        # Validation pipeline UI
 │   └── utils/
-│       ├── ipfs-utils.js          # IPFS URL conversion & CID validation
-│       ├── sanitizer.js           # XSS prevention utilities
-│       └── error-handler.js       # Centralized error handling & logging
+│       ├── error-handler.js         # Centralized error handling & logging
+│       ├── ipfs-utils.js            # IPFS URL conversion & CID validation
+│       └── sanitizer.js             # XSS prevention utilities
 ├── docs/
-│   ├── PRD-NFT-Metadata-Scanner.md    # Product requirements
-│   └── PROJECT-MANAGEMENT-PLAN.md     # Project management plan
+│   ├── ARCHITECTURE.md              # Architecture guide (template/reference)
+│   ├── NFT-METADATA-STANDARDS.md    # Standards reference and examples
+│   ├── PRD-NFT-Metadata-Scanner.md  # Product requirements (active)
+│   ├── PROJECT-MANAGEMENT-PLAN.md   # Project management plan (template/reference)
+│   └── SECURITY.md                  # Security policy (template/reference)
 ├── .github/
-│   └── copilot-instructions.md        # AI coding agent guidelines
-├── ai-instructions.md                 # Detailed AI assistant instructions
+│   └── copilot-instructions.md      # AI coding agent guidelines
+├── ai-instructions.md               # Detailed AI assistant instructions
 ├── LICENSE
 └── README.md
 ```
+
+## Documentation
+
+This repository includes several planning and reference documents under the `docs/` directory. Note that some of these documents are intentionally written as templates or references for future projects and planning work; they are not required for the current running application.
+
+- `docs/ARCHITECTURE.md` — High-level architecture guide (template/reference for future projects).
+- `docs/PROJECT-MANAGEMENT-PLAN.md` — Project planning and sprint breakdown (template/reference for future projects).
+- `docs/SECURITY.md` — Security policy and OWASP checklist (planning reference; implementation is applied in code where relevant).
+- `docs/PRD-NFT-Metadata-Scanner.md` — Product requirements for this MVP (active document).
+
+If you're reviewing the repo for deployment or contribution, focus first on the `index.html`, `js/`, and `css/` files; the `docs/` folder is primarily informational.
+
 
 ## Security
 
@@ -117,13 +134,14 @@ This is a **personal portfolio project** under active development, built collabo
 - [x] URL validation with SSRF protection
 - [x] IPFS URL detection and gateway conversion
 - [x] Metadata fetching with CORS proxy fallback
+- [x] IPFS gateway fallback for reliability
 - [x] Metadata parsing (Enjin, ERC-721, ERC-1155)
 - [x] VirusTotal API integration (URL scanning)
+- [x] VirusTotal file upload scanning (media files)
 - [x] Safe media preview with blob URLs
 - [x] Responsive mobile-first UI
 - [x] Accessible pipeline status display
-- [ ] VirusTotal file upload scanning
-- [ ] Result caching (sessionStorage)
+- [x] Result caching (sessionStorage for quota)
 - [ ] Dark/light theme toggle
 - [ ] Comprehensive test suite
 - [ ] GitHub Pages deployment
