@@ -20,3 +20,6 @@
 # Build outputs (if any)
 dist/
 build/
+
+# Environment files
+.env

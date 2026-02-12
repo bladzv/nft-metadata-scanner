@@ -521,77 +521,13 @@ When I say **END**, perform these actions in order:
   - Ask: "No actions logged in this session. Create empty PR description anyway? (y/n)"
   - Wait for confirmation before proceeding
 
-#### Step 2: Generate Semantic Branch Name
-Analyze all logged actions and create branch name:
-
-**Branch Prefix Rules:**
-- `feature/` - New functionality or capabilities
-- `fix/` - Bug fixes or corrections
-- `refactor/` - Code restructuring without feature changes
-- `chore/` - Maintenance tasks (dependencies, configs)
-- `docs/` - Documentation-only changes
-- `security/` - Security improvements or patches
-
-**Format:** `[prefix]/[kebab-case-description]`
-
-**Examples:**
-- `feature/add-virustotal-integration`
-- `feature/implement-ipfs-support`
-- `fix/resolve-xss-vulnerability`
-- `fix/correct-metadata-parsing-error`
-- `refactor/improve-url-validation-logic`
-- `chore/update-eslint-configuration`
-- `security/implement-csp-headers`
-
-**Guidelines:**
-- Keep under 50 characters
-- Be specific but concise
-- Use descriptive verbs (add, implement, fix, improve, etc.)
-- Avoid redundant words (the, a, an)
-
-#### Step 3: Generate Git Commit Message
-Create one-line summary following Conventional Commits format:
-
-**Format:** `[type]([scope]): [description]`
-
-**Types:**
-- `feat` - New feature
-- `fix` - Bug fix
-- `refactor` - Code refactoring
-- `chore` - Maintenance
-- `docs` - Documentation
-- `security` - Security improvement
-- `perf` - Performance improvement
-- `test` - Testing
-
-**Guidelines:**
-- Use imperative mood ("Add" not "Added" or "Adds")
-- Keep under 72 characters
-- No period at the end
-- Lowercase description
-
-**Examples:**
-- `feat(scanner): add VirusTotal API integration for URL scanning`
-- `fix(validation): prevent XSS in metadata display`
-- `refactor(ui): improve status display component structure`
-- `security(csp): implement strict Content Security Policy`
-- `chore(deps): update development dependencies to latest`
-
-#### Step 4: Check GitHub Issues
-- Search repository for existing GitHub Issues
-- Identify issues addressed by logged actions
-- Look for keywords: bug, feature request, enhancement, security
-- Match action descriptions to issue titles/descriptions
-
-#### Step 5: Generate PR Description
+#### Step 2: Generate PR Description
 Create comprehensive PR description and append to `.github/pr_description.md`:
 
 **PR Description Format:**
 ```markdown
 # PR: [Descriptive title summarizing all changes]
 Timestamp: [YYYY-MM-DD HH:MM:SS UTC]
-Git Branch: [semantic-branch-name]
-Git Commit Message: [concise one-liner commit message]
 
 ## Summary
 [2-3 sentence overview of what this PR accomplishes, why it matters, and the value it provides to users or the project]
@@ -682,19 +618,11 @@ Git Commit Message: [concise one-liner commit message]
 ```
 ✓ PR Description Generated
 
-Branch: [semantic-branch-name]
-Commit: [commit-message]
-Issues: [count] related issue(s) found
-
 PR description saved to .github/pr_description.md
 
 Next Steps:
   1. Review the PR description
-  2. Create branch: git checkout -b [branch-name]
-  3. Stage changes: git add .
-  4. Commit: git commit -m "[commit-message]"
-  5. Push: git push origin [branch-name]
-  6. Create PR using description from .github/pr_description.md
+  2. Create PR using description from .github/pr_description.md
 ```
 
 ---
@@ -704,10 +632,8 @@ Next Steps:
 **After `END` command completes:**
 
 The assistant will:
-- ✓ Provide suggested branch name
-- ✓ Provide suggested commit message
 - ✓ Generate comprehensive PR description
-- ✓ Present all suggestions for review
+- ✓ Present it for review
 
 The assistant will **NOT**:
 - ✗ Automatically create git branches
@@ -725,19 +651,7 @@ After reviewing generated suggestions:
 # 1. Review PR description
 cat .github/pr_description.md
 
-# 2. Create feature branch
-git checkout -b [suggested-branch-name]
-
-# 3. Stage all changes
-git add .
-
-# 4. Commit with suggested message
-git commit -m "[suggested-commit-message]"
-
-# 5. Push to remote
-git push origin [branch-name]
-
-# 6. Create PR on GitHub
+# 2. Create PR on GitHub
 # Copy content from .github/pr_description.md into PR description
 ```
 

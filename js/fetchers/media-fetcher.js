@@ -109,6 +109,7 @@ export async function fetchMedia(imageUrl) {
     return {
         success: true,
         objectUrl,
+        blob,
         mimeType: mimeType || 'image/unknown',
         size: blob.size,
     };
