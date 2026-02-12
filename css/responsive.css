@@ -73,7 +73,7 @@
     }
 
     .results-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
     }
 
     .site-main {
@@ -120,7 +120,6 @@
     .site-header,
     .site-footer,
     .input-section,
-    .api-key-section,
     .about-panel,
     .skip-link {
         display: none;

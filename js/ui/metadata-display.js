@@ -8,6 +8,21 @@ import { safeSetText } from '../utils/sanitizer.js';
 import { getStandardLabel } from '../validators/metadata-parser.js';
 
 /**
+ * Gets additional information about a metadata standard.
+ * @param {string} standard - The detected standard
+ * @returns {string|null} Additional information or null
+ */
+function getStandardInfo(standard) {
+    const info = {
+        enjin: 'Gaming-focused metadata with media arrays and attributes',
+        erc721: 'Standard NFT metadata with single image and attributes array',
+        erc1155: 'Multi-token standard with decimals for fungible tokens',
+        unknown: 'Non-standard metadata format'
+    };
+    return info[standard] || null;
+}
+
+/**
  * Shows the results section.
  * @param {boolean} visible - Whether to show results
  */
@@ -49,13 +64,27 @@ export function renderMetadata(result) {
 
     content.innerHTML = '';
 
-    // Standard badge
+    // Standard badge with enhanced information
     const badge = createField('Standard', null);
+    const badgeContainer = document.createElement('div');
+    badgeContainer.style.cssText = 'display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;';
+
     const badgeSpan = document.createElement('span');
-    badgeSpan.className = 'metadata-badge';
+    badgeSpan.className = `metadata-badge metadata-badge-${result.standard}`;
     badgeSpan.textContent = getStandardLabel(result.standard);
+    badgeContainer.appendChild(badgeSpan);
+
+    // Add standard-specific information
+    const standardInfo = getStandardInfo(result.standard);
+    if (standardInfo) {
+        const infoSpan = document.createElement('span');
+        infoSpan.className = 'metadata-standard-info';
+        infoSpan.textContent = standardInfo;
+        badgeContainer.appendChild(infoSpan);
+    }
+
     badge.querySelector('.metadata-value')?.remove();
-    badge.appendChild(badgeSpan);
+    badge.appendChild(badgeContainer);
     content.appendChild(badge);
 
     // Name

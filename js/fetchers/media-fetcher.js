@@ -15,9 +15,18 @@ const MEDIA_TIMEOUT_MS = 15_000;
 const ALLOWED_IMAGE_TYPES = [
     'image/png',
     'image/jpeg',
+    'image/jpg',
     'image/gif',
     'image/webp',
     'image/svg+xml',
+    'image/bmp',
+    'image/tiff',
+    'image/x-icon',
+    'image/avif',
+    'image/heic',
+    'image/heif',
+    'image/jp2',
+    'image/vnd.microsoft.icon',
 ];
 
 /** @type {number} Max file size in bytes (32 MB — VT limit) */

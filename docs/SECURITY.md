@@ -270,10 +270,12 @@ We take security seriously. If you discover a security vulnerability in the NFT 
 - **Data Handling**: No user data sent to VirusTotal
 - **Privacy**: URL scanning only (no file uploads by default)
 
-### CORS Proxy (allorigins.win)
+### CORS Proxy (allorigins.win, corsproxy.org)
 - **Fallback Only**: Used when direct requests fail
+- **Multiple Providers**: Automatic fallback between proxy services
 - **Trust Model**: Limited to JSON metadata requests
 - **Monitoring**: Request failures logged for analysis
+- **Timeout Handling**: 15-second timeout with user-friendly error messages
 
 ## Compliance
 

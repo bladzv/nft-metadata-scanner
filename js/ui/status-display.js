@@ -10,12 +10,12 @@
 
 /** @type {Object<StepStatus, string>} Icons for each status */
 const STATUS_ICONS = {
-    pending: '⏺',
-    active: '⏳',
+    pending: '○',
+    active: '⟳',
     success: '✓',
     warning: '⚠',
-    error: '✗',
-    skipped: '—',
+    error: '✕',
+    skipped: '⊘',
 };
 
 /** @type {HTMLOListElement|null} Cached reference to pipeline steps container */
