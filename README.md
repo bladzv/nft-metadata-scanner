@@ -1,10 +1,14 @@
-# NFT Metadata Scanner
+<div align="center">
+
+# ![favicon](favicon/favicon-32x32.png) NFT Metadata Scanner
 
 > **Secure, Client-Side NFT Metadata Validation Tool with Advanced Security Features**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue)](https://bladzv.github.io/nft-metadata-scanner/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![OWASP Compliant](https://img.shields.io/badge/OWASP-Top%2010%20Compliant-green)](https://owasp.org/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue?style=for-the-badge&logo=github&logoColor=white)](https://bladzv.github.io/nft-metadata-scanner/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![OWASP Compliant](https://img.shields.io/badge/OWASP-Top%2010%20Compliant-green?style=for-the-badge&logo=shield&logoColor=white)](https://owasp.org/)
+
+</div>
 
 A client-side web application for secure validation and preview of NFT metadata. Supports Enjin Blockchain, ERC-721, and ERC-1155 standards with integrated VirusTotal security scanning. Built with security best practices and OWASP Top 10 compliance.
 
@@ -219,18 +223,3 @@ We welcome contributions to improve the NFT Metadata Scanner! This project demon
 - Performance optimizations
 - Internationalization (i18n)
 - Dark/light theme implementation
-
-## License
-
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
-
-## Author
-
-**bladzv** — Cybersecurity-focused developer specializing in secure web applications and blockchain technology.
-
-- [GitHub](https://github.com/bladzv)
-- [LinkedIn](https://linkedin.com/in/bladzv)
-
----
-
-*Built with ❤️ and AI assistance as a demonstration of secure web development practices in the NFT and blockchain space.*
