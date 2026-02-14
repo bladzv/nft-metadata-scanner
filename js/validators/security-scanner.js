@@ -10,6 +10,9 @@ import { logError, logInfo, logSecurity, safeAsync } from '../utils/error-handle
 /** @type {string} VirusTotal API v3 base URL */
 const VT_BASE_URL = 'https://www.virustotal.com/api/v3';
 
+/** @type {string} CORS proxy for GitHub Pages deployment */
+const VT_PROXY = 'https://cors-anywhere.herokuapp.com/';
+
 /** @type {number} Maximum file size accepted by VT free tier (32 MB) */
 const VT_FILE_SIZE_LIMIT = 32 * 1024 * 1024;
 
@@ -87,7 +90,7 @@ const rateLimiter = new RateLimiter(4, 60_000);
  * @returns {Promise<ScanResult>} Scan result with stats and rawAnalysis
  */
 async function pollAnalysis(analysisId, apiKey) {
-    const analysisEndpoint = `${VT_BASE_URL}/analyses/${analysisId}`;
+    const analysisEndpoint = `${VT_PROXY}${VT_BASE_URL}/analyses/${analysisId}`;
     const pollIntervalMs = 2000;
     const maxPolls = 6;
     let analysisData = null;
@@ -190,7 +193,7 @@ export async function scanURL(url, apiKey, externalSignal = null) {
     console.log('[VirusTotal] Starting scan for URL:', url);
     await rateLimiter.waitForSlot();
 
-    const submitEndpoint = `${VT_BASE_URL}/urls`;
+    const submitEndpoint = `${VT_PROXY}${VT_BASE_URL}/urls`;
 
     // Build an AbortController that respects both a timeout and an optional external signal
     const submitController = new AbortController();
@@ -295,7 +298,7 @@ export async function scanFile(blob, filename, apiKey, externalSignal = null) {
     }
 
     const [submitResponse, submitErr] = await safeAsync(
-        fetch(`${VT_BASE_URL}/files`, {
+        fetch(`${VT_PROXY}${VT_BASE_URL}/files`, {
             method: 'POST',
             headers: { 'x-apikey': apiKey },
             body: formData,
