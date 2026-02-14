@@ -62,6 +62,8 @@
     /* Layout */
     --container-max: 960px;
     --header-height: 4rem;
+    /* Standard control height used across inputs and buttons */
+    --control-height: 48px;
 }
 
 /* ---------- Reset & Base ---------- */
@@ -227,7 +229,8 @@ code, pre {
 .site-main {
     flex: 1;
     /* Reduce top padding to bring content closer to the header while keeping bottom padding for visual balance */
-    padding: var(--space-xs) 0 calc(var(--space-xl) / 2) 0;
+    /* Top padding removed (was var(--space-xs) = 4px) to eliminate small gap at page top */
+    padding: 0 0 calc(var(--space-xl) / 2) 0;
     display: flex;
     flex-direction: column;
     gap: calc(var(--space-lg) / 2);

@@ -506,6 +506,13 @@ details[open] > summary::before {
 
 /* Reduce extra bottom spacing for the API key input itself */
 #apikey-input {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Remove small top/bottom margins for the metadata URL input to tighten layout */
+#url-input {
+    margin-top: 0;
     margin-bottom: 0;
 }
 
