@@ -694,7 +694,7 @@ async function fetchUserQuota(apiKey) {
     if (!apiKey) return null;
     try {
         const resp = await fetch(
-            `https://cors-anywhere.herokuapp.com/https://www.virustotal.com/api/v3/users/${encodeURIComponent(apiKey)}`,
+            `https://www.virustotal.com/api/v3/users/${encodeURIComponent(apiKey)}`,
             {
                 method: 'GET',
                 headers: { 'x-apikey': apiKey, 'Accept': 'application/json' },
