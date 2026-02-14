@@ -3,6 +3,19 @@
    NFT Metadata Scanner
    ========================================================================== */
 
+/* Modal heading adjustments */
+#about-heading {
+    margin-bottom: 0;
+}
+
+/* Ensure modal header labels are vertically centered with the close button */
+.modal-header > h2 {
+    margin: 0;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+}
+
 /* ---------- Cards ---------- */
 .card {
     background: var(--color-surface);
@@ -10,6 +23,33 @@
     border-radius: var(--radius-lg);
     padding: var(--space-lg);
     transition: border-color var(--transition-base);
+}
+
+/* Reduce padding for the API key and URL input cards by 50% */
+.api-key-card-wrap,
+.url-input-card-wrap {
+    padding: calc(var(--space-lg) / 2);
+}
+
+/* When the URL card is inactive (no saved API key), make it non-interactive.
+   Use both the `inert` property (modern browsers) and a fallback `.inactive`
+   class / aria-disabled attribute to prevent pointer events and show a
+   not-allowed cursor. This prevents clicks on example buttons, the form,
+   and other controls when scanning is disabled. */
+.url-input-card-wrap:has(input[aria-disabled="true"]),
+.url-input-card-wrap.inactive,
+.url-input-card-wrap[aria-disabled="true"] {
+    opacity: 0.62;
+    filter: grayscale(28%) contrast(0.95);
+    transition: opacity var(--transition-fast), filter var(--transition-fast), border-color var(--transition-fast);
+    pointer-events: none;
+    user-select: none;
+    cursor: not-allowed;
+}
+
+/* Add explicit separation between API key card and URL card */
+.api-key-card-wrap {
+    margin-bottom: var(--space-md);
 }
 
 .card-subtle {
@@ -42,17 +82,22 @@
     transition: all var(--transition-fast);
     white-space: nowrap;
     text-decoration: none;
+    min-height: 44px;
+    min-width: 44px;
 }
 
 .btn:focus-visible {
     outline: 2px solid var(--color-border-focus);
     outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
 }
 
 .btn:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: not-allowed;
     pointer-events: none;
+    background-color: var(--color-secondary);
+    color: var(--color-text-muted);
 }
 
 .btn-primary {
@@ -61,9 +106,16 @@
     border-color: var(--color-primary);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
     background: var(--color-primary-hover);
     border-color: var(--color-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+.btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 3px rgba(99, 102, 241, 0.15);
 }
 
 .btn-secondary {
@@ -72,8 +124,10 @@
     border-color: var(--color-border);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
     background: var(--color-secondary-hover);
+    border-color: var(--color-border-focus);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .btn-ghost {
@@ -93,8 +147,9 @@
     color: #fff;
     border-color: var(--color-success);
 }
-.btn-success:hover {
-    filter: brightness(0.95);
+.btn-success:hover:not(:disabled) {
+    filter: brightness(0.9);
+    box-shadow: 0 2px 6px rgba(34, 197, 94, 0.25);
 }
 
 .btn-danger {
@@ -102,8 +157,9 @@
     color: #fff;
     border-color: var(--color-error);
 }
-.btn-danger:hover {
-    filter: brightness(0.95);
+.btn-danger:hover:not(:disabled) {
+    filter: brightness(0.9);
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.25);
 }
 
 .btn-link {
@@ -128,10 +184,26 @@
 /* ---------- Forms / Inputs ---------- */
 .input-label {
     display: block;
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-lg); /* larger label text */
     font-weight: 600;
     color: var(--color-text-heading);
     margin-bottom: var(--space-sm);
+}
+
+/* Required field indicator (text) */
+.required-indicator {
+    color: #ef4444; /* solid red */
+    font-weight: 400; /* do not bold the "Required" text */
+    margin-left: 0.25rem;
+    font-size: var(--font-size-sm); /* keep indicator smaller than label */
+}
+
+/* Form-level help text explaining required fields */
+.form-help-text {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-md);
+    line-height: 1.5;
 }
 
 .input-group {
@@ -146,14 +218,19 @@
 .input-field {
     flex: 1;
     padding: 0.625rem 0.875rem;
-    font-family: var(--font-family);
-    font-size: var(--font-size-base);
+    margin-top: var(--space-xs);
+    margin-bottom: 8px;
+    /* Justified alignment for multi-line helper text */
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
     color: var(--color-text);
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
     min-width: 0;
+    min-height: 44px;
 }
 
 /* Wrapper for input + clear button */
@@ -207,8 +284,11 @@
 
 /* Keep action button same width to avoid layout shift */
 .api-key-action {
-    min-width: 96px;
-    width: 96px;
+    /* Fixed dimensions per design request: 120x48 */
+    min-width: 120px;
+    width: 120px;
+    min-height: 48px;
+    height: 48px;
     box-sizing: border-box;
 }
 
@@ -223,22 +303,177 @@
     opacity: 0.7;
 }
 
+/* Dim URL input when disabled because no API key is saved */
+#url-input[disabled],
+.input-field[aria-disabled="true"] {
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    border-color: rgba(42, 46, 58, 0.45);
+    box-shadow: none;
+}
+
+#url-input[disabled]::placeholder,
+.input-field[aria-disabled="true"]::placeholder {
+    color: var(--color-text-muted);
+    opacity: 0.9;
+}
+
 .input-field:focus {
     outline: none;
     border-color: var(--color-border-focus);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2), inset 0 0 0 1px var(--color-border-focus);
+}
+
+/* Show/hide API key toggle */
+.input-with-toggle {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+.input-with-toggle .input-field {
+    padding-right: 4rem; /* room for clear + toggle buttons on the right */
+}
+.input-toggle {
+    position: absolute;
+    right: 0.5rem;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    width: 32px;
+    padding: 4px;
+    border-radius: 6px;
+}
+.input-toggle:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+.input-toggle svg {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+/* Clear button for API key (left side of input-with-toggle) */
+#apikey-clear-btn {
+    position: absolute;
+    right: 2.75rem; /* snug left of the toggle (toggle at 0.5rem) */
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 4px;
+    height: 32px;
+    width: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    z-index: 2;
+}
+#apikey-clear-btn:hover {
+    color: var(--color-text);
+    background-color: var(--color-surface-hover);
+}
+#apikey-clear-btn:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 1px;
+}
+.input-toggle .icon-eye {
+    display: none; /* default: hidden (masked state shows eye-off) */
+}
+.input-toggle .icon-eye-off {
+    display: inline-block; /* default: show eye-off when masked */
+}
+/* When pressed (revealed) show the open-eye and hide the eye-off */
+.input-toggle[aria-pressed="true"] .icon-eye {
+    display: inline-block;
+}
+.input-toggle[aria-pressed="true"] .icon-eye-off {
+    display: none;
+}
+.input-toggle[aria-pressed="true"] {
+    color: var(--color-primary);
 }
 
 .input-field[aria-invalid="true"] {
     border-color: var(--color-error);
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15), inset 0 0 0 1px var(--color-error);
+}
+
+.input-field[aria-invalid="true"]:focus {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2), inset 0 0 0 1px var(--color-error);
 }
 
 .input-help {
     font-size: var(--font-size-sm);
     color: var(--color-text-muted);
     margin-top: var(--space-xs);
-    margin-bottom: 0;
+    margin-bottom: 8px;
+}
+
+/* Add a bit of separation between the API key help text and the input */
+#apikey-help {
+
+/* Custom disclosure marker for details/summary (accessible, consistent) */
+details summary {
+    /* keep existing flex behavior; ensure marker is provided via ::before */
+    position: relative;
+}
+details summary::before {
+    /* Use an inline SVG background to avoid glyph/encoding issues */
+    content: "";
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin-right: calc(var(--space-sm) / 2);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='currentColor' d='M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 0.9em 0.9em;
+    color: var(--color-text-muted);
+    transform-origin: center;
+    transform: rotate(0deg);
+    transition: transform var(--transition-fast), color var(--transition-fast);
+}
+details[open] > summary::before {
+    transform: rotate(90deg);
+    color: var(--color-primary);
+}
+    margin-bottom: var(--space-sm);
+}
+
+/* Stack VT summary parts vertically in table cells (one-per-line) */
+.scan-table td .vt-malicious,
+.scan-table td .vt-suspicious,
+.scan-table td .vt-clean,
+.scan-table td .vt-undetected {
+    display: block;
+    line-height: 1.25;
+}
+.scan-table td .vt-malicious { color: var(--color-error); }
+.scan-table td .vt-suspicious { color: #d97706; }
+.scan-table td .vt-clean { color: var(--color-text); }
+.scan-table td .vt-undetected { color: var(--color-text-muted); }
+
+/* Remove border/background for undetected badge to match inline text style */
+.scan-table td .vt-undetected {
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+/* Match spacing for URL help text to keep inputs consistent */
+#url-help {
+    margin-bottom: var(--space-sm);
 }
 
 .input-error {
@@ -251,8 +486,40 @@
 }
 
 .input-error.hidden {
+    /* Keep reserved space for the error line to prevent layout shifts.
+       Use visibility:hidden so the element remains in flow but is not visible. */
     visibility: hidden;
-    opacity: 0;
+}
+
+/* Collapse reserved error space specifically for the API key input
+   so the input doesn't leave an empty gap when no error is shown. */
+#apikey-error {
+    min-height: 0;
+    margin-top: var(--space-xs);
+    margin-bottom: 0;
+    line-height: 1.2;
+}
+#apikey-error.hidden {
+    visibility: hidden;
+    min-height: 0;
+}
+
+/* Reduce extra bottom spacing for the API key input itself */
+#apikey-input {
+    margin-bottom: 0;
+}
+
+/* Tighter spacing for the API key helper text */
+#apikey-help {
+    margin-bottom: var(--space-xs);
+    margin-top: 0;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+/* Ensure error messages have minimum space when visible */
+.input-error {
+    line-height: 1.4;
 }
 
 /* ---------- Toggle Switch ---------- */
@@ -415,12 +682,12 @@
 
 /* ---------- Scan Form ---------- */
 .scan-form {
-    margin-bottom: var(--space-lg);
+    margin-bottom: 0;
 }
 
 .input-help {
     margin-top: var(--space-xs);
-    margin-bottom: var(--space-md);
+    margin-bottom: var(--space-sm); /* remove bottom margin to reduce spacing below help text */
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
     line-height: 1.4;
@@ -439,7 +706,28 @@
     gap: var(--space-xs);
     flex-wrap: wrap;
     font-size: var(--font-size-sm);
-    margin-bottom: var(--space-md);
+    margin-bottom: 0;
+}
+
+/* Compact example URLs row: reduce vertical padding/height and tighten spacing */
+.example-urls {
+    gap: calc(var(--space-xs) / 2);
+    font-size: 0.875rem;
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+    align-items: center;
+}
+.example-urls .btn-link.example-btn {
+    padding: 0 0.25rem;
+    font-size: 0.875rem;
+    line-height: 1;
+    min-height: 0;
+    height: auto;
+}
+.example-urls .example-label {
+    margin-right: 0.5rem;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
 }
 
 .example-label {
@@ -543,6 +831,25 @@ details summary:hover {
     left: 100%;
 }
 
+    .url-input-card-wrap:has(input[aria-disabled="true"]),
+    .url-input-card-wrap.inactive {
+        opacity: 0.62;
+        filter: grayscale(28%) contrast(0.95);
+        transition: opacity var(--transition-fast), filter var(--transition-fast), border-color var(--transition-fast);
+    }
+
+    /* Tweak focus/outline visibility so dimmed card doesn't show overly-bright focus ring */
+    .url-input-card-wrap:has(input[aria-disabled="true"]) :focus,
+    .url-input-card-wrap.inactive :focus {
+        outline: 2px solid rgba(99,102,241,0.18);
+    }
+
+    /* Muted inline link appearance inside inactive card */
+    .url-input-card-wrap:has(input[aria-disabled="true"]) .btn-link,
+    .url-input-card-wrap.inactive .btn-link {
+        color: var(--color-text-muted);
+        text-decoration: underline dotted;
+    }
 .pipeline-step[data-status="success"] {
     background: rgba(34, 197, 94, 0.1);
     border-color: rgba(34, 197, 94, 0.3);
@@ -831,7 +1138,12 @@ details summary:hover {
     overflow-y: auto;
 }
 
+/* Ensure the table wrapper establishes a containing block for the
+   sticky header and controls scrolling. Making it `position: relative`
+   prevents small sub-pixel gaps between the sticky header and the
+   scrolling content in some browsers. */
 #apikey-quota-table-wrap {
+    position: relative;
     overflow-x: auto;
     margin-top: var(--space-sm);
     /* allow vertical scrolling inside the table wrapper if content is tall */
@@ -843,9 +1155,15 @@ details summary:hover {
 #apikey-quota-modal .quota-table thead th {
     position: sticky;
     top: 0;
+    /* ensure header is visually flush with the scrolling viewport */
     background: var(--color-surface-hover);
-    z-index: 5;
-    box-shadow: 0 2px 0 rgba(0,0,0,0.02);
+    z-index: 12; /* higher than default row content */
+    /* remove the subtle drop shadow that can create a visible line/gap
+       when rows scroll under the sticky header */
+    box-shadow: none;
+    /* draw a clean top border so the header always hides any table edge */
+    border-top: 1px solid var(--color-border);
+    text-align: center;
 }
 
 #apikey-quota-modal .modal-header h2 {
@@ -990,7 +1308,7 @@ details summary:hover {
     font-size: var(--font-size-xs);
     text-transform: none;
     color: var(--color-text-heading);
-    text-align: left;
+    text-align: center;
 }
 
 .quota-table tbody td {
@@ -1012,6 +1330,26 @@ details summary:hover {
     overflow-x: auto;
     margin-top: var(--space-sm);
 }
+
+/* Ensure table borders/gridlines use the theme border color (never pure white) */
+table,
+.scan-table,
+.scan-results-table,
+.quota-table,
+.metadata-table,
+.scan-table th,
+.scan-table td,
+.scan-results-table th,
+.scan-results-table td,
+.quota-table th,
+.quota-table td,
+.metadata-table th,
+.metadata-table td {
+    /* enforce a muted border color for gridlines */
+    border-color: var(--color-border) !important;
+    color-scheme: dark; /* ensure color rendering consistent in dark theme */
+}
+
 
 .scan-url {
     font-family: monospace;
@@ -1090,9 +1428,9 @@ details summary:hover {
 
 /* ---------- API Key ---------- */
 .api-key-inline {
-    margin-top: var(--space-lg);
-    padding-top: var(--space-lg);
-    border-top: 1px solid var(--color-border);
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
 }
 
 .apikey-icon {
@@ -1281,17 +1619,23 @@ details summary:hover {
 .table-wrapper {
     overflow-x: auto;
     margin-top: var(--space-sm);
-    border: 1px solid var(--color-border);
+    border: none; /* table will draw its own border for consistent grid */
     border-radius: var(--radius-md);
 }
 
 .scan-table {
-    width: auto;
+    width: 100%; /* stretch to wrapper border on wide screens */
     min-width: 500px;
     border-collapse: collapse;
     font-size: var(--font-size-sm);
-    table-layout: auto;
-    margin: 0 auto;
+    table-layout: fixed; /* distribute columns across full width even when empty */
+    margin: 0;
+    /* Use the theme border color to match the Parsed Metadata table for consistency */
+    border: 1px solid var(--color-border);
+    /* subtle inset frame to match metadata table wrapper tone */
+    box-shadow: 0 0 0 1px rgba(42,46,58,0.02) inset;
+    border-radius: var(--radius-md);
+    overflow: hidden;
 }
 
 .scan-table th,
@@ -1599,6 +1943,13 @@ details summary:hover {
 
 /* VT Detail Modal — moderate size, not full screen */
 .modal-vt-detail {
+
+/* Justify paragraphs inside modal bodies for consistent presentation */
+.modal-body p {
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
+}
     max-width: 640px;
     width: 92%;
     max-height: 75vh;
@@ -1659,3 +2010,54 @@ details summary:hover {
 .vt-undetected {
     color: var(--color-text-muted);
 }
+
+/* Footer: professional, compact OSS-style */
+.site-footer .footer-text {
+    color: var(--color-text-muted);
+    font-size: 0.9375rem; /* 15px */
+    margin: 0;
+}
+
+.site-footer .footer-nav a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    font-size: 0.9375rem;
+}
+
+.site-footer .footer-nav a:hover,
+.site-footer .footer-nav a:focus {
+    color: var(--color-text);
+    text-decoration: underline;
+}
+
+.footer-sep {
+    margin: 0 0.4rem;
+    color: var(--color-text-muted);
+}
+
+@media (max-width: 720px) {
+    .footer-content {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: var(--space-sm);
+    }
+    .site-footer .footer-nav a { margin-left: 0.25rem; margin-right: 0.25rem; }
+}
+
+/* Override footer height variable to make footer more compact. 
+   This will also reduce the bottom padding on .site-main which uses
+   calc(var(--footer-height) + var(--space-md)). */
+:root {
+    --footer-height: 44px;
+}
+
+/* Justified paragraph helper used in modals and descriptions */
+.justified-text {
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
+}
+

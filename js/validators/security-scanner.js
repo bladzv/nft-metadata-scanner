@@ -95,13 +95,31 @@ async function pollAnalysis(analysisId, apiKey) {
     for (let attempt = 0; attempt < maxPolls; attempt++) {
         await rateLimiter.waitForSlot();
 
+        // allow optional external signal via pollAnalysis._externalSignal (set by caller)
+        const externalSignal = pollAnalysis._externalSignal ?? null;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15_000);
+        let abortListener = null;
+        if (externalSignal) {
+            if (externalSignal.aborted) {
+                clearTimeout(timeoutId);
+                return { scanned: false, error: 'Scan aborted' };
+            }
+            abortListener = () => controller.abort();
+            externalSignal.addEventListener('abort', abortListener);
+        }
+
         const [resp, err] = await safeAsync(
             fetch(analysisEndpoint, {
                 method: 'GET',
                 headers: { 'x-apikey': apiKey, 'Accept': 'application/json' },
-                signal: AbortSignal.timeout(15_000),
+                signal: controller.signal,
             })
         );
+
+        // cleanup
+        clearTimeout(timeoutId);
+        if (externalSignal && abortListener) externalSignal.removeEventListener('abort', abortListener);
 
         if (err) {
             console.error('[VirusTotal] Network error during analysis fetch:', err.message);
@@ -163,7 +181,7 @@ async function pollAnalysis(analysisId, apiKey) {
  * @param {string} apiKey - VirusTotal API key
  * @returns {Promise<ScanResult>} Scan result
  */
-export async function scanURL(url, apiKey) {
+export async function scanURL(url, apiKey, externalSignal = null) {
     if (!apiKey) {
         console.log('[VirusTotal] No API key provided, skipping scan for:', url);
         return { scanned: false, skipped: true, error: 'No API key provided' };
@@ -174,6 +192,19 @@ export async function scanURL(url, apiKey) {
 
     const submitEndpoint = `${VT_BASE_URL}/urls`;
 
+    // Build an AbortController that respects both a timeout and an optional external signal
+    const submitController = new AbortController();
+    const submitTimeout = setTimeout(() => submitController.abort(), 15_000);
+    let submitAbortListener = null;
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(submitTimeout);
+            return { scanned: false, error: 'Scan aborted' };
+        }
+        submitAbortListener = () => submitController.abort();
+        externalSignal.addEventListener('abort', submitAbortListener);
+    }
+
     const [submitResponse, submitErr] = await safeAsync(
         fetch(submitEndpoint, {
             method: 'POST',
@@ -183,9 +214,12 @@ export async function scanURL(url, apiKey) {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: new URLSearchParams({ url }),
-            signal: AbortSignal.timeout(15_000),
+            signal: submitController.signal,
         })
     );
+
+    clearTimeout(submitTimeout);
+    if (externalSignal && submitAbortListener) externalSignal.removeEventListener('abort', submitAbortListener);
 
     if (submitErr) {
         console.error('[VirusTotal] Network error during URL submission:', submitErr.message);
@@ -210,7 +244,11 @@ export async function scanURL(url, apiKey) {
     }
 
     console.log('[VirusTotal] URL analysis ID:', analysisId);
-    return await pollAnalysis(analysisId, apiKey);
+    // attach externalSignal to pollAnalysis so it can be observed
+    pollAnalysis._externalSignal = externalSignal;
+    const res = await pollAnalysis(analysisId, apiKey);
+    pollAnalysis._externalSignal = null;
+    return res;
 }
 
 /* ------------------------------------------------------------------ */
@@ -224,7 +262,7 @@ export async function scanURL(url, apiKey) {
  * @param {string} apiKey - VirusTotal API key
  * @returns {Promise<ScanResult>} Scan result
  */
-export async function scanFile(blob, filename, apiKey) {
+export async function scanFile(blob, filename, apiKey, externalSignal = null) {
     if (!apiKey) {
         console.log('[VirusTotal] No API key provided, skipping file scan');
         return { scanned: false, skipped: true, error: 'No API key provided' };
@@ -244,14 +282,29 @@ export async function scanFile(blob, filename, apiKey) {
     const formData = new FormData();
     formData.append('file', blob, filename || 'upload');
 
+    const uploadController = new AbortController();
+    const uploadTimeout = setTimeout(() => uploadController.abort(), 30_000);
+    let uploadAbortListener = null;
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(uploadTimeout);
+            return { scanned: false, error: 'Scan aborted' };
+        }
+        uploadAbortListener = () => uploadController.abort();
+        externalSignal.addEventListener('abort', uploadAbortListener);
+    }
+
     const [submitResponse, submitErr] = await safeAsync(
         fetch(`${VT_BASE_URL}/files`, {
             method: 'POST',
             headers: { 'x-apikey': apiKey },
             body: formData,
-            signal: AbortSignal.timeout(30_000),
+            signal: uploadController.signal,
         })
     );
+
+    clearTimeout(uploadTimeout);
+    if (externalSignal && uploadAbortListener) externalSignal.removeEventListener('abort', uploadAbortListener);
 
     if (submitErr) {
         console.error('[VirusTotal] Network error during file upload:', submitErr.message);
