@@ -10,6 +10,7 @@ import { scanURL, scanFile } from './validators/security-scanner.js';
 import { fetchMetadataJSON } from './fetchers/metadata-fetcher.js';
 import { fetchMedia } from './fetchers/media-fetcher.js';
 import { logInfo, logError, getUserMessage } from './utils/error-handler.js';
+import { enableModalKeyboardHandling, disableModalKeyboardHandling } from './utils/modal-manager.js';
 
 /* ------------------------------------------------------------------ */
 /*  State                                                              */
@@ -21,6 +22,12 @@ let vtApiKey = '';
 /** @type {boolean} Whether a scan is currently running */
 let isScanning = false;
 
+/** @type {AbortController|null} Controller used to cancel an in-progress scan */
+let scanAbortController = null;
+
+/** @type {Object} Stores keyboard event handler cleanup functions for modals */
+const modalKeyboardHandlers = {};
+
 /* ------------------------------------------------------------------ */
 /*  DOM References                                                     */
 /* ------------------------------------------------------------------ */
@@ -30,6 +37,8 @@ const urlInput = document.getElementById('url-input');
 const scanBtn = document.getElementById('scan-btn');
 const urlError = document.getElementById('url-error');
 const urlClearBtn = document.getElementById('url-clear-btn');
+// URL card wrapper — used to make the whole card inert when no API key
+const urlCardWrap = document.querySelector('.url-input-card-wrap');
 
 // About modal
 const aboutBtn = document.getElementById('about-btn');
@@ -39,6 +48,7 @@ const aboutOkBtn = document.getElementById('about-ok-btn');
 
 // API key elements
 const apikeyInput = document.getElementById('apikey-input');
+const apikeyClearBtn = document.getElementById('apikey-clear-btn');
 const apikeyActionBtn = document.getElementById('apikey-action-btn');
 const apikeyQuotaBtn = document.getElementById('apikey-quota-btn');
 const apikeyQuotaModal = document.getElementById('apikey-quota-modal');
@@ -46,6 +56,10 @@ const apikeyQuotaCloseBtn = document.getElementById('apikey-quota-close-btn');
 const apikeyQuotaCloseFooter = document.getElementById('apikey-quota-close-footer');
 const apikeyQuotaTable = document.getElementById('apikey-quota-table');
 const apikeyError = document.getElementById('apikey-error');
+// API key invalid modal elements
+const apikeyInvalidModal = document.getElementById('apikey-invalid-modal');
+const apikeyInvalidCloseBtn = document.getElementById('apikey-invalid-close-btn');
+const apikeyInvalidOkBtn = document.getElementById('apikey-invalid-ok-btn');
 
 // Generic modals
 const apikeyRequiredModal = document.getElementById('apikey-required-modal');
@@ -69,11 +83,20 @@ const mediaPreviewCloseBtn = document.getElementById('media-preview-close-btn');
 const mediaPreviewCloseFooter = document.getElementById('media-preview-close-footer');
 const mediaPreviewImg = document.getElementById('media-preview-img');
 
+// Scan error modal (shown when pipeline stops due to an error)
+const scanErrorModal = document.getElementById('scan-error-modal');
+const scanErrorBody = document.getElementById('scan-error-body');
+const scanErrorCloseBtn = document.getElementById('scan-error-close-btn');
+const scanErrorCloseFooter = document.getElementById('scan-error-close-footer');
+const scanErrorRefreshBtn = document.getElementById('scan-error-refresh-btn');
+
 // Navigation
 const inputSection = document.querySelector('.input-section');
 const resultsContainer = document.getElementById('results-container');
 const backButtonContainer = document.getElementById('back-button-container');
 const backBtn = document.getElementById('back-btn');
+// Main site wrapper used for adjusting layout when routing
+const siteMain = document.querySelector('.site-main');
 
 const apikeyQuotaBtnOrig = apikeyQuotaBtn ? apikeyQuotaBtn.innerHTML : 'Show Quota';
 
@@ -99,14 +122,14 @@ function showHomePage() {
     if (inputSection) inputSection.hidden = false;
     if (backButtonContainer) backButtonContainer.hidden = true;
     if (resultsContainer) resultsContainer.hidden = true;
-    if (siteMain) siteMain.style.paddingTop = '';
+    if (typeof siteMain !== 'undefined' && siteMain) siteMain.style.paddingTop = '';
 }
 
 function showResultsPage() {
     if (inputSection) inputSection.hidden = true;
     if (backButtonContainer) backButtonContainer.hidden = false;
     if (resultsContainer) resultsContainer.hidden = false;
-    if (siteMain) siteMain.style.paddingTop = '0';
+    if (typeof siteMain !== 'undefined' && siteMain) siteMain.style.paddingTop = '0';
 }
 
 function navigateToResults() {
@@ -156,11 +179,63 @@ function bindEvents() {
 
     // API key
     apikeyActionBtn?.addEventListener('click', handleApiKeyAction);
-    apikeyInput?.addEventListener('input', () => { if (apikeyError) apikeyError.classList.add('hidden'); });
+    apikeyInput?.addEventListener('input', () => {
+        if (apikeyError) apikeyError.classList.add('hidden');
+        toggleApikeyClearBtn();
+    });
+    apikeyClearBtn?.addEventListener('click', () => {
+        if (!apikeyInput) return;
+        apikeyInput.value = '';
+        apikeyInput.focus();
+        if (apikeyError) {
+            apikeyError.textContent = '';
+            apikeyError.classList.add('hidden');
+        }
+        // Ensure Save button is ready for input
+        if (apikeyActionBtn) {
+            apikeyActionBtn.textContent = 'Save';
+            apikeyActionBtn.className = 'btn btn-success btn-sm api-key-action';
+            apikeyActionBtn.disabled = false;
+        }
+        toggleApikeyClearBtn();
+    });
     apikeyQuotaBtn?.addEventListener('click', handleQuotaButtonClick);
     apikeyQuotaCloseBtn?.addEventListener('click', hideQuotaModal);
     apikeyQuotaCloseFooter?.addEventListener('click', hideQuotaModal);
     apikeyQuotaModal?.addEventListener('click', (e) => { if (e.target === apikeyQuotaModal) hideQuotaModal(); });
+    apikeyInvalidCloseBtn?.addEventListener('click', hideApikeyInvalidModal);
+    apikeyInvalidOkBtn?.addEventListener('click', hideApikeyInvalidModal);
+    apikeyInvalidModal?.addEventListener('click', (e) => { if (e.target === apikeyInvalidModal) hideApikeyInvalidModal(); });
+    // API key show/hide toggle
+    const apikeyToggle = document.getElementById('apikey-toggle');
+    apikeyToggle?.addEventListener('click', () => {
+        if (!apikeyInput) return;
+        // If a key is saved (readOnly + masked value), toggling should reveal
+        // the real API key value stored in memory (`vtApiKey`). Otherwise
+        // behave like a normal show/hide for editable input.
+        const savedState = apikeyInput.readOnly && !!vtApiKey;
+        if (savedState) {
+            const revealed = apikeyInput.getAttribute('data-revealed') === 'true';
+            if (!revealed) {
+                apikeyInput.type = 'text';
+                apikeyInput.value = vtApiKey;
+                apikeyInput.setAttribute('data-revealed', 'true');
+                apikeyToggle.setAttribute('aria-pressed', 'true');
+                apikeyToggle.setAttribute('aria-label', 'Hide API key');
+            } else {
+                apikeyInput.type = 'password';
+                apikeyInput.value = '\u2713 ' + '\u2022'.repeat(Math.min(16, vtApiKey.length));
+                apikeyInput.setAttribute('data-revealed', 'false');
+                apikeyToggle.setAttribute('aria-pressed', 'false');
+                apikeyToggle.setAttribute('aria-label', 'Show API key');
+            }
+        } else {
+            const currentlyVisible = apikeyInput.type === 'text';
+            apikeyInput.type = currentlyVisible ? 'password' : 'text';
+            apikeyToggle.setAttribute('aria-pressed', String(!currentlyVisible));
+            apikeyToggle.setAttribute('aria-label', !currentlyVisible ? 'Hide API key' : 'Show API key');
+        }
+    });
 
     // API key required modal
     apikeyRequiredOkBtn?.addEventListener('click', hideApikeyRequiredModal);
@@ -183,11 +258,17 @@ function bindEvents() {
     mediaPreviewCloseFooter?.addEventListener('click', hideMediaPreviewModal);
     mediaPreviewModal?.addEventListener('click', (e) => { if (e.target === mediaPreviewModal) hideMediaPreviewModal(); });
 
+    // Scan error modal handlers
+    scanErrorCloseBtn?.addEventListener('click', hideScanErrorModal);
+    scanErrorCloseFooter?.addEventListener('click', hideScanErrorModal);
+    scanErrorRefreshBtn?.addEventListener('click', () => { window.location.reload(); });
+    scanErrorModal?.addEventListener('click', (e) => { if (e.target === scanErrorModal) hideScanErrorModal(); });
+
     // Keyboard
     document.addEventListener('keydown', handleKeyDown);
 
     // Navigation
-    backBtn?.addEventListener('click', navigateToHome);
+    backBtn?.addEventListener('click', handleBackClick);
     urlInput?.addEventListener('input', () => {
         setUrlError('');
         toggleUrlClearBtn();
@@ -213,6 +294,12 @@ function toggleUrlClearBtn() {
     urlClearBtn.hidden = !urlInput.value;
 }
 
+function toggleApikeyClearBtn() {
+    if (!apikeyClearBtn || !apikeyInput) return;
+    // Hide clear when input is readOnly (saved state) or empty
+    apikeyClearBtn.hidden = apikeyInput.readOnly || !apikeyInput.value;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Modal Helpers                                                      */
 /* ------------------------------------------------------------------ */
@@ -221,6 +308,7 @@ function showAboutModal() {
     if (!aboutModal || !aboutBtn) return;
     aboutModal.hidden = false;
     aboutBtn.setAttribute('aria-expanded', 'true');
+    enableModalKeyboardHandling(aboutModal, hideAboutModal, modalKeyboardHandlers, 'about');
     aboutCloseBtn?.focus();
 }
 
@@ -228,30 +316,61 @@ function hideAboutModal() {
     if (!aboutModal || !aboutBtn) return;
     aboutModal.hidden = true;
     aboutBtn.setAttribute('aria-expanded', 'false');
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'about');
     aboutBtn?.focus();
 }
 
 function showApikeyRequiredModal() {
     if (!apikeyRequiredModal) return;
     apikeyRequiredModal.hidden = false;
+    enableModalKeyboardHandling(apikeyRequiredModal, hideApikeyRequiredModal, modalKeyboardHandlers, 'apikeyRequired');
     apikeyRequiredOkBtn?.focus();
+}
+
+function showApikeyInvalidModal() {
+    if (!apikeyInvalidModal) return;
+    apikeyInvalidModal.hidden = false;
+    enableModalKeyboardHandling(apikeyInvalidModal, hideApikeyInvalidModal, modalKeyboardHandlers, 'apikeyInvalid');
+    apikeyInvalidOkBtn?.focus();
+}
+
+function hideApikeyInvalidModal() {
+    if (!apikeyInvalidModal) return;
+    apikeyInvalidModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'apikeyInvalid');
+    // restore focus to the API key input and make it editable again
+    if (apikeyInput) {
+        apikeyInput.readOnly = false;
+        // Keep the input masked by default even when making it editable
+        apikeyInput.type = 'password';
+        apikeyInput.removeAttribute('data-revealed');
+        apikeyInput.focus();
+    }
+    if (apikeyActionBtn) {
+        apikeyActionBtn.disabled = false;
+        apikeyActionBtn.textContent = 'Save';
+        apikeyActionBtn.className = 'btn btn-success btn-sm api-key-action';
+    }
 }
 
 function hideApikeyRequiredModal() {
     if (!apikeyRequiredModal) return;
     apikeyRequiredModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'apikeyRequired');
     apikeyInput?.focus();
 }
 
 function showRemoveConfirmModal() {
     if (!removeConfirmModal) return;
     removeConfirmModal.hidden = false;
+    enableModalKeyboardHandling(removeConfirmModal, hideRemoveConfirmModal, modalKeyboardHandlers, 'removeConfirm');
     removeConfirmNoBtn?.focus();
 }
 
 function hideRemoveConfirmModal() {
     if (!removeConfirmModal) return;
     removeConfirmModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'removeConfirm');
     apikeyActionBtn?.focus();
 }
 
@@ -259,12 +378,14 @@ function showQuotaModal() {
     if (!apikeyQuotaModal || !apikeyQuotaBtn) return;
     apikeyQuotaModal.hidden = false;
     apikeyQuotaBtn.setAttribute('aria-expanded', 'true');
+    enableModalKeyboardHandling(apikeyQuotaModal, hideQuotaModal, modalKeyboardHandlers, 'quota');
     apikeyQuotaCloseBtn?.focus();
 }
 
 function hideQuotaModal() {
     if (!apikeyQuotaModal || !apikeyQuotaBtn) return;
     apikeyQuotaModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'quota');
     apikeyQuotaBtn?.focus();
 }
 
@@ -281,12 +402,14 @@ function showVtDetailModal(data) {
     }
 
     vtDetailModal.hidden = false;
+    enableModalKeyboardHandling(vtDetailModal, hideVtDetailModal, modalKeyboardHandlers, 'vtDetail');
     vtDetailCloseBtn?.focus();
 }
 
 function hideVtDetailModal() {
     if (!vtDetailModal) return;
     vtDetailModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'vtDetail');
 }
 
 function showMediaPreviewModal(src, alt) {
@@ -294,6 +417,7 @@ function showMediaPreviewModal(src, alt) {
     mediaPreviewImg.src = src;
     mediaPreviewImg.alt = alt || 'NFT Media Preview';
     mediaPreviewModal.hidden = false;
+    enableModalKeyboardHandling(mediaPreviewModal, hideMediaPreviewModal, modalKeyboardHandlers, 'mediaPreview');
     mediaPreviewCloseBtn?.focus();
 }
 
@@ -301,6 +425,26 @@ function hideMediaPreviewModal() {
     if (!mediaPreviewModal) return;
     if (mediaPreviewImg) mediaPreviewImg.src = '';
     mediaPreviewModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'mediaPreview');
+}
+
+/**
+ * Show the scan error modal with a descriptive message and abort any running scan.
+ * @param {string} message
+ */
+function showScanErrorModal(message) {
+    try { abortScan(); } catch (e) {}
+    if (scanErrorBody && typeof message === 'string') scanErrorBody.textContent = message;
+    if (!scanErrorModal) return;
+    scanErrorModal.hidden = false;
+    enableModalKeyboardHandling(scanErrorModal, hideScanErrorModal, modalKeyboardHandlers, 'scanError');
+    scanErrorRefreshBtn?.focus();
+}
+
+function hideScanErrorModal() {
+    if (!scanErrorModal) return;
+    scanErrorModal.hidden = true;
+    disableModalKeyboardHandling(modalKeyboardHandlers, 'scanError');
 }
 
 function handleKeyDown(event) {
@@ -331,39 +475,88 @@ function setQuotaButtonLoading(loading) {
 
 function updateApiKeyUI() {
     if (!apikeyActionBtn || !apikeyQuotaBtn) return;
+    const apikeyToggle = document.getElementById('apikey-toggle');
     const cached = sessionStorage.getItem('nft-scanner-vt-quota');
 
     if (vtApiKey) {
         if (apikeyInput) {
+            apikeyInput.type = 'password';
             apikeyInput.value = '\u2713 ' + '\u2022'.repeat(Math.min(16, vtApiKey.length));
             apikeyInput.readOnly = true;
             apikeyInput.classList.add('input-success');
+            apikeyInput.setAttribute('data-revealed', 'false');
         }
         apikeyActionBtn.hidden = false;
         apikeyActionBtn.disabled = false;
         apikeyActionBtn.textContent = 'Remove';
         apikeyActionBtn.className = 'btn btn-danger btn-sm api-key-action';
-        if (cached) {
+        // Show quota button; enable only if we have cached quotas
+        if (apikeyQuotaBtn) {
             apikeyQuotaBtn.hidden = false;
-            apikeyQuotaBtn.disabled = false;
-        } else {
-            apikeyQuotaBtn.hidden = true;
-            apikeyQuotaBtn.disabled = true;
+            apikeyQuotaBtn.disabled = !cached;
+        }
+        if (apikeyToggle) {
+            apikeyToggle.setAttribute('aria-pressed', 'false');
+            apikeyToggle.setAttribute('aria-label', 'Show API key');
         }
         if (scanBtn) scanBtn.disabled = false;
+        // Allow URL input when an API key is saved
+        if (urlInput) {
+            urlInput.disabled = false;
+            urlInput.removeAttribute('aria-disabled');
+            // ensure the disabled-help is hidden
+            const urlDisabledHelp = document.getElementById('url-disabled-help');
+            if (urlDisabledHelp) urlDisabledHelp.classList.add('hidden');
+            // restore original aria-describedby (url-help and url-error)
+            urlInput.setAttribute('aria-describedby', 'url-help url-error');
+        }
+        // Make the entire URL card interactive again
+        if (urlCardWrap) {
+            try { urlCardWrap.inert = false; } catch (e) {}
+            urlCardWrap.classList.remove('inactive');
+            urlCardWrap.removeAttribute('aria-disabled');
+        }
+        // hide clear when key is saved/masked
+        if (typeof toggleApikeyClearBtn === 'function') toggleApikeyClearBtn();
     } else {
         if (apikeyInput) {
+            // Keep editable input masked by default
+            apikeyInput.type = 'password';
             apikeyInput.value = '';
             apikeyInput.readOnly = false;
             apikeyInput.classList.remove('input-success');
+            apikeyInput.removeAttribute('data-revealed');
         }
         apikeyActionBtn.hidden = false;
         apikeyActionBtn.disabled = false;
         apikeyActionBtn.textContent = 'Save';
         apikeyActionBtn.className = 'btn btn-success btn-sm api-key-action';
-        apikeyQuotaBtn.hidden = false;
-        apikeyQuotaBtn.disabled = true;
+        // Hide Show Quota until a valid API key is saved
+        if (apikeyQuotaBtn) {
+            apikeyQuotaBtn.hidden = true;
+            apikeyQuotaBtn.disabled = true;
+        }
+        if (apikeyToggle) {
+            apikeyToggle.setAttribute('aria-pressed', 'false');
+            apikeyToggle.setAttribute('aria-label', 'Show API key');
+        }
         if (scanBtn) scanBtn.disabled = true;
+        // Prevent URL input editing until a valid API key is saved
+        if (urlInput) {
+            urlInput.disabled = true;
+            urlInput.setAttribute('aria-disabled', 'true');
+            // show disabled help and update aria-describedby to include it
+            const urlDisabledHelp = document.getElementById('url-disabled-help');
+            if (urlDisabledHelp) urlDisabledHelp.classList.remove('hidden');
+            urlInput.setAttribute('aria-describedby', 'url-help url-disabled-help url-error');
+        }
+        // Make the entire URL card inert / non-interactive when no API key
+        if (urlCardWrap) {
+            try { urlCardWrap.inert = true; } catch (e) {}
+            urlCardWrap.classList.add('inactive');
+            urlCardWrap.setAttribute('aria-disabled', 'true');
+        }
+            if (typeof toggleApikeyClearBtn === 'function') toggleApikeyClearBtn();
     }
 }
 
@@ -378,22 +571,29 @@ function loadApiKey() {
         logError('StorageError', 'Failed to load API key', { error: error.message });
     }
     updateApiKeyUI();
-
-    if (vtApiKey) {
-        setQuotaButtonLoading(true);
-        fetchUserQuota(vtApiKey)
-            .then((quota) => {
-                if (quota) {
-                    sessionStorage.setItem('nft-scanner-vt-quota', JSON.stringify(quota));
-                    if (apikeyQuotaBtn) {
-                        apikeyQuotaBtn.hidden = false;
-                        apikeyQuotaBtn.disabled = false;
-                    }
-                }
-            })
-            .catch(() => {})
-            .finally(() => setQuotaButtonLoading(false));
+    // IMPORTANT: Do NOT auto-fetch or reveal quota on page load. The Show Quota
+    // Show Quota visibility: keep any cached quota if present so the Show
+    // Quota button can persist across page reloads when a key was saved.
+    // If quotas are cached in `sessionStorage` the button will be enabled;
+    // otherwise it will be visible but disabled until the user requests it.
+    try {
+        const cached = sessionStorage.getItem('nft-scanner-vt-quota');
+        if (vtApiKey) {
+            if (apikeyQuotaBtn) {
+                apikeyQuotaBtn.hidden = false;
+                apikeyQuotaBtn.disabled = !cached;
+            }
+        } else {
+            if (apikeyQuotaBtn) {
+                apikeyQuotaBtn.hidden = true;
+                apikeyQuotaBtn.disabled = true;
+            }
+        }
+    } catch (err) {
+        // non-fatal
     }
+    // Ensure the apikey clear button is in the correct initial state
+    try { if (typeof toggleApikeyClearBtn === 'function') toggleApikeyClearBtn(); } catch (e) {}
 }
 
 async function handleApiKeySave() {
@@ -412,34 +612,56 @@ async function handleApiKeySave() {
         apikeyError.classList.add('hidden');
         apikeyError.textContent = '';
     }
+    // Enter validation/checking state (do not persist until validated)
+    if (apikeyActionBtn) {
+        apikeyActionBtn.textContent = 'Checking';
+        apikeyActionBtn.className = 'btn btn-secondary btn-sm api-key-action';
+        apikeyActionBtn.disabled = true;
+    }
+    // Prevent editing while checking
+    apikeyInput.readOnly = true;
 
+    setQuotaButtonLoading(true);
     try {
-        localStorage.setItem('nft-scanner-vt-api-key', key);
-        vtApiKey = key;
-        updateApiKeyUI();
-        logInfo('API key saved');
+        const quotas = await fetchUserQuota(key);
+        if (!quotas) {
+            // Invalid key or failed to verify
+            showApikeyInvalidModal();
+            return;
+        }
 
-        setQuotaButtonLoading(true);
+        // Valid key: persist and enable quota button
         try {
-            const quotas = await fetchUserQuota(key);
-            if (quotas) {
-                sessionStorage.setItem('nft-scanner-vt-quota', JSON.stringify(quotas));
-                if (apikeyQuotaBtn) {
-                    apikeyQuotaBtn.hidden = false;
-                    apikeyQuotaBtn.disabled = false;
-                }
+            localStorage.setItem('nft-scanner-vt-api-key', key);
+            vtApiKey = key;
+            sessionStorage.setItem('nft-scanner-vt-quota', JSON.stringify(quotas));
+            if (apikeyQuotaBtn) {
+                apikeyQuotaBtn.hidden = false;
+                apikeyQuotaBtn.disabled = false;
             }
+            updateApiKeyUI();
+            logInfo('API key validated and saved');
         } catch (err) {
-            console.warn('[API Key] Failed to fetch quota:', err?.message || err);
-        } finally {
-            setQuotaButtonLoading(false);
+            logError('StorageError', 'Failed to persist validated API key', { error: err?.message || err });
+            if (apikeyError) {
+                apikeyError.textContent = 'Failed to save API key after validation.';
+                apikeyError.classList.remove('hidden');
+            }
         }
-    } catch (error) {
-        if (apikeyError) {
-            apikeyError.textContent = 'Failed to save API key. Please try again.';
-            apikeyError.classList.remove('hidden');
+    } catch (err) {
+        console.warn('[API Key] Error during validation:', err?.message || err);
+        showApikeyInvalidModal();
+    } finally {
+        setQuotaButtonLoading(false);
+        // If key was saved, updateApiKeyUI already made input readOnly and masked; otherwise, leave modal handler to re-enable
+        if (vtApiKey) {
+            // persisted; updateApiKeyUI has set appropriate states
+        } else {
+            // not persisted: ensure action button is enabled again for retry (modal's hide handler also restores)
+            if (apikeyActionBtn) {
+                apikeyActionBtn.disabled = false;
+            }
         }
-        logError('StorageError', 'Failed to save API key', { error: error.message });
     }
 }
 
@@ -458,7 +680,7 @@ function confirmApiKeyRemove() {
         vtApiKey = '';
         sessionStorage.removeItem('nft-scanner-vt-quota');
         if (apikeyQuotaBtn) {
-            apikeyQuotaBtn.hidden = false;
+            apikeyQuotaBtn.hidden = true;
             apikeyQuotaBtn.disabled = true;
         }
         updateApiKeyUI();
@@ -779,7 +1001,8 @@ function formatVtSummary(result) {
     if (suspicious > 0) parts.push(`<span class="vt-suspicious">${suspicious} suspicious</span>`);
     parts.push(`<span class="vt-clean">${harmless} clean</span>`);
     parts.push(`<span class="vt-undetected">${undetected} undetected</span>`);
-    return parts.join(' · ');
+    // No separator — parts render as separate block lines via CSS
+    return parts.join('');
 }
 
 /**
@@ -1161,17 +1384,46 @@ async function handleScanSubmit(event) {
     }
 
     setUrlError('');
+    // Prepare abort controller for this scan so it can be cancelled (Back button)
+    try { if (scanAbortController) scanAbortController.abort(); } catch (e) {}
+    scanAbortController = new AbortController();
     setScanLoading(true);
     clearResults();
     navigateToResults();
 
     try {
-        await runPipeline(rawUrl);
+        await runPipeline(rawUrl, scanAbortController.signal);
     } catch (err) {
         logError('PipelineError', 'Unhandled error in scan pipeline', { error: err.message });
     } finally {
         setScanLoading(false);
+        // cleanup controller after scan finishes
+        scanAbortController = null;
     }
+}
+
+/**
+ * Abort an in-progress scan if any, and clean up UI state.
+ */
+function abortScan() {
+    if (scanAbortController) {
+        try { scanAbortController.abort(); } catch (e) {}
+        scanAbortController = null;
+    }
+    // Ensure UI reflects stopped state
+    setScanLoading(false);
+    // Provide light notification to user
+    setUrlError('Scan cancelled');
+}
+
+/**
+ * Back button behavior: stop running scan (if any) and navigate home.
+ */
+function handleBackClick() {
+    if (isScanning) {
+        abortScan();
+    }
+    navigateToHome();
 }
 
 /**
@@ -1179,7 +1431,7 @@ async function handleScanSubmit(event) {
  * Each step renders a card; the next step only runs if the previous passed.
  * @param {string} rawUrl - User-entered URL (already validated)
  */
-async function runPipeline(rawUrl) {
+async function runPipeline(rawUrl, externalSignal = null) {
     const validation = validateURL(rawUrl); // Already validated, but get details
     const protocol = validation.protocol === 'ipfs' ? 'IPFS' : 'HTTPS';
     const resolvedUrl = validation.resolvedUrl;
@@ -1198,13 +1450,13 @@ async function runPipeline(rawUrl) {
 
     /* ---- Step 1: URL Security Scan (VirusTotal) ---- */
     const step1 = createStepCard('URL Security Scan (VirusTotal)');
-    const urlHeaders = ['Status', 'Scanned URL', 'VirusTotal Results Summary', 'More Details'];
+    const urlHeaders = ['Status', 'Scanned URL', 'RESULTS', 'More Details'];
     const { wrapper: uWrap, tbody: uTbody } = createScanTable(urlHeaders);
     const uPlaceholder = createPlaceholderRow(4);
     uTbody.appendChild(uPlaceholder);
     step1.body.appendChild(uWrap);
 
-    const urlScan = await scanURL(resolvedUrl, vtApiKey);
+    const urlScan = await scanURL(resolvedUrl, vtApiKey, externalSignal);
 
     uTbody.removeChild(uPlaceholder);
     uTbody.appendChild(buildUrlScanRow(resolvedUrl, urlScan));
@@ -1215,6 +1467,7 @@ async function runPipeline(rawUrl) {
             'beforeend',
             '<p class="step-msg step-msg-error">The metadata URL was flagged as potentially unsafe. Scan stopped.</p>'
         );
+        showScanErrorModal('The metadata URL was flagged as potentially unsafe. The scan has been stopped.');
         return;
     }
     setStepStatus(step1, urlScan.scanned ? 'success' : 'warning');
@@ -1228,12 +1481,13 @@ async function runPipeline(rawUrl) {
 
     /* ---- Step 2: Fetch Metadata JSON ---- */
     const step2 = createStepCard('Fetching Metadata...');
-    const fetchResult = await fetchMetadataJSON(resolvedUrl);
+    const fetchResult = await fetchMetadataJSON(resolvedUrl, externalSignal);
 
     if (!fetchResult.success) {
         setStepStatus(step2, 'error');
         step2.titleEl.textContent = 'Metadata Fetch Failed';
         step2.body.innerHTML = `<p class="step-msg step-msg-error">${escapeHtml(getUserMessage(fetchResult.error))}</p>`;
+        showScanErrorModal(getUserMessage(fetchResult.error) || 'Failed to fetch metadata.');
         return;
     }
 
@@ -1247,6 +1501,7 @@ async function runPipeline(rawUrl) {
     if (!parseResult.valid) {
         setStepStatus(step3, 'error');
         step3.body.innerHTML = `<p class="step-msg step-msg-error">${escapeHtml(parseResult.reason)}</p>`;
+        showScanErrorModal(parseResult.reason || 'Metadata parsing failed.');
         return;
     }
 
@@ -1389,20 +1644,21 @@ async function runPipeline(rawUrl) {
     for (const mediaObj of urlsToScan) {
         // 7a: URL Scan for this media
         const mediaStep = createStepCard(`URL Scan: ${mediaObj.field.replace('.url', '')}`);
-        const mHeaders = ['Status', 'Field', 'Scanned URL', 'VirusTotal Results Summary', 'More Details'];
+        const mHeaders = ['Status', 'Field', 'Scanned URL', 'RESULTS', 'More Details'];
         const { wrapper: mWrap, tbody: mTbody } = createScanTable(mHeaders);
         const mPlaceholder = createPlaceholderRow(5);
         mTbody.appendChild(mPlaceholder);
         mediaStep.body.appendChild(mWrap);
 
-        const mResult = await scanURL(mediaObj.url, vtApiKey);
+        const mResult = await scanURL(mediaObj.url, vtApiKey, externalSignal);
 
         mTbody.removeChild(mPlaceholder);
         mTbody.appendChild(buildMediaUrlScanRow(mediaObj, mResult));
 
         if (mResult.safe === false) {
             setStepStatus(mediaStep, 'error');
-            continue;
+            showScanErrorModal('A media URL was flagged as potentially unsafe. The scan has been stopped.');
+            return;
         }
         setStepStatus(mediaStep, mResult.scanned ? 'success' : 'warning');
 
@@ -1423,7 +1679,7 @@ async function runPipeline(rawUrl) {
             fileStep.body.appendChild(fWrap);
 
             // Fetch the media file
-            const mediaFetchResult = await fetchMedia(mediaObj.url);
+            const mediaFetchResult = await fetchMedia(mediaObj.url, externalSignal);
 
             if (!mediaFetchResult.success) {
                 fTbody.removeChild(fPlaceholder);
@@ -1435,17 +1691,20 @@ async function runPipeline(rawUrl) {
                 failRow.appendChild(failCell);
                 fTbody.appendChild(failRow);
                 setStepStatus(fileStep, 'error');
-                continue;
+                showScanErrorModal(mediaFetchResult.error || 'Failed to fetch media file.');
+                return;
             }
 
             // Upload blob to VirusTotal /files endpoint
-            const fileResult = await scanFile(mediaFetchResult.blob, `media_${mediaObj.field}`, vtApiKey);
+            const fileResult = await scanFile(mediaFetchResult.blob, `media_${mediaObj.field}`, vtApiKey, externalSignal);
 
             fTbody.removeChild(fPlaceholder);
             fTbody.appendChild(buildFileScanRow(mediaFetchResult, fileResult));
 
             if (fileResult.safe === false) {
                 setStepStatus(fileStep, 'error');
+                showScanErrorModal('A media file was flagged as potentially unsafe. The scan has been stopped.');
+                return;
             } else if (fileResult.scanned) {
                 setStepStatus(fileStep, 'success');
             } else {
@@ -1485,7 +1744,12 @@ async function runPipeline(rawUrl) {
 
     summaryTable.appendChild(tbody);
     summaryCard.body.appendChild(summaryTable);
-    siteMain.appendChild(summaryCard);
+    if (typeof siteMain !== 'undefined' && siteMain) {
+        siteMain.appendChild(summaryCard);
+    } else if (resultsContainer) {
+        // Fallback: append to results container when siteMain isn't available
+        resultsContainer.appendChild(summaryCard);
+    }
 
     logInfo('Pipeline complete', { url: rawUrl, standard: parseResult.standard });
 }

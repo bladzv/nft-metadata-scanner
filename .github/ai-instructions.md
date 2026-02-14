@@ -287,17 +287,19 @@ The permanent project history is preserved through:
 
 When I say **START**, perform these actions:
 
-1. **Reset `.github/actions.md`**:
+1. **Read the entire contents** of 'ai-instructions.md' and internalize all instructions. These instructions$
+
+2. **Reset `.github/actions.md`**:
    - If the file exists, delete it completely
    - Create a new empty file at `.github/actions.md`
    - Confirm: "Session initialized. `.github/actions.md` reset."
 
-2. **Reset `.github/pr_description.md`**:
+3. **Reset `.github/pr_description.md`**:
    - If the file exists, delete it completely
    - Create a new empty file at `.github/pr_description.md`
    - Confirm: "Session initialized. `.github/pr_description.md` reset."
 
-3. **Verify session state**:
+4. **Verify session state**:
    - Ensure no active `LOG` sessions from previous runs
    - Clear any internal tracking state
    - Ready to accept `LOG` command
@@ -343,7 +345,7 @@ Call SUCCESS when ready to commit this action.
 **Entry Format:**
 ```markdown
 # Action: [Short descriptive title]
-Timestamp: [YYYY-MM-DD HH:MM:SS UTC]
+Timestamp: [YYYY-MM-DD HH:MM:SS UTC] Fetch the current time programmatically using this command: date -u +"%Y-%m-%d %H:%M:%S UTC"
 
 ## Changes Made
 - [Detailed description of changes]
@@ -589,7 +591,7 @@ Create comprehensive PR description and append to `.github/pr_description.md`:
 **PR Description Format:**
 ```markdown
 # PR: [Descriptive title summarizing all changes]
-Timestamp: [YYYY-MM-DD HH:MM:SS UTC]
+Timestamp: [YYYY-MM-DD HH:MM:SS UTC] Fetch the current time programmatically using this command: date -u +"%Y-%m-%d %H:%M:%S UTC"
 Git Branch: [semantic-branch-name]
 Git Commit Message: [concise one-liner commit message]
 

@@ -36,7 +36,7 @@ const CORS_PROXY_URLS = [
  * @param {string} url - The resolved HTTPS URL to fetch metadata from
  * @returns {Promise<FetchResult>} Fetch result with raw text or error
  */
-export async function fetchMetadataJSON(url) {
+export async function fetchMetadataJSON(url, externalSignal = null) {
     const gateways = getGateways();
     const isIPFSGateway = gateways.some(gateway => url.startsWith(gateway));
     
@@ -52,9 +52,9 @@ export async function fetchMetadataJSON(url) {
         const cidPath = url.slice(ipfsIndex + 6); // Everything after '/ipfs/'
         
         // Try each IPFS gateway in order
-        for (const gateway of gateways) {
-            const gatewayUrl = gateway + cidPath;
-            const result = await attemptFetch(gatewayUrl);
+            for (const gateway of gateways) {
+                const gatewayUrl = gateway + cidPath;
+                const result = await attemptFetch(gatewayUrl, externalSignal);
             if (result.success) {
                 return result;
             }
@@ -66,7 +66,7 @@ export async function fetchMetadataJSON(url) {
         logInfo('All IPFS gateways failed, trying CORS proxies', { proxyTargetUrl });
         
         for (const proxyBaseUrl of CORS_PROXY_URLS) {
-            const proxyResult = await attemptFetchViaProxy(proxyTargetUrl, proxyBaseUrl);
+            const proxyResult = await attemptFetchViaProxy(proxyTargetUrl, proxyBaseUrl, externalSignal);
             if (proxyResult.success) {
                 return { ...proxyResult, usedProxy: true };
             }
@@ -87,7 +87,7 @@ export async function fetchMetadataJSON(url) {
         };
     } else {
         // Non-IPFS URL: use existing logic
-        const directResult = await attemptFetch(url);
+        const directResult = await attemptFetch(url, externalSignal);
         if (directResult.success) {
             return directResult;
         }
@@ -96,7 +96,7 @@ export async function fetchMetadataJSON(url) {
         logInfo('Direct fetch failed, trying CORS proxies', { url, error: directResult.error });
 
         for (const proxyBaseUrl of CORS_PROXY_URLS) {
-            const proxyResult = await attemptFetchViaProxy(url, proxyBaseUrl);
+            const proxyResult = await attemptFetchViaProxy(url, proxyBaseUrl, externalSignal);
             if (proxyResult.success) {
                 return { ...proxyResult, usedProxy: true };
             }
@@ -122,14 +122,29 @@ export async function fetchMetadataJSON(url) {
  * @param {string} url - URL to fetch
  * @returns {Promise<FetchResult>} Fetch result
  */
-async function attemptFetch(url) {
+async function attemptFetch(url, externalSignal = null) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let abortListener = null;
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(timeoutId);
+            return { success: false, error: 'Fetch aborted' };
+        }
+        abortListener = () => controller.abort();
+        externalSignal.addEventListener('abort', abortListener);
+    }
+
     const [response, err] = await safeAsync(
         fetch(url, {
             method: 'GET',
             headers: { 'Accept': 'application/json' },
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            signal: controller.signal,
         })
     );
+
+    clearTimeout(timeoutId);
+    if (externalSignal && abortListener) externalSignal.removeEventListener('abort', abortListener);
 
     if (err) {
         return { success: false, error: err.message };
@@ -155,7 +170,7 @@ async function attemptFetch(url) {
  * @param {string} proxyBaseUrl - Base URL of the CORS proxy
  * @returns {Promise<FetchResult>} Fetch result
  */
-async function attemptFetchViaProxy(url, proxyBaseUrl) {
+async function attemptFetchViaProxy(url, proxyBaseUrl, externalSignal = null) {
     let proxyUrl;
     if (proxyBaseUrl.includes('allorigins.win')) {
         // allorigins format: https://api.allorigins.win/get?url=ENCODED_URL
@@ -165,12 +180,27 @@ async function attemptFetchViaProxy(url, proxyBaseUrl) {
         proxyUrl = `${proxyBaseUrl}${url}`;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+    let abortListener = null;
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(timeoutId);
+            return { success: false, error: 'Proxy fetch aborted' };
+        }
+        abortListener = () => controller.abort();
+        externalSignal.addEventListener('abort', abortListener);
+    }
+
     const [response, err] = await safeAsync(
         fetch(proxyUrl, {
             method: 'GET',
-            signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
+            signal: controller.signal,
         })
     );
+
+    clearTimeout(timeoutId);
+    if (externalSignal && abortListener) externalSignal.removeEventListener('abort', abortListener);
 
     if (err) {
         if (err.name === 'TimeoutError') {

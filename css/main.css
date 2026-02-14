@@ -122,6 +122,11 @@ body {
     border: 0;
 }
 
+/* Ensure hidden attribute works properly */
+[hidden] {
+    display: none !important;
+}
+
 /* ---------- Layout ---------- */
 .container {
     width: 100%;
@@ -159,12 +164,14 @@ a {
 
 a:hover {
     text-decoration: underline;
+    transition: color var(--transition-fast);
 }
 
 a:focus-visible {
     outline: 2px solid var(--color-border-focus);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
 }
 
 ul, ol {
@@ -202,7 +209,12 @@ code, pre {
 }
 
 .logo-icon {
-    font-size: var(--font-size-2xl);
+    width: 1.5rem; /* match --font-size-2xl */
+    height: 1.5rem;
+    display: inline-block;
+    vertical-align: middle;
+    object-fit: contain;
+    transition: opacity var(--transition-fast);
 }
 
 .tagline {
@@ -214,27 +226,47 @@ code, pre {
 /* ---------- Main Content ---------- */
 .site-main {
     flex: 1;
-    padding: var(--space-xl) 0;
+    /* Reduce top padding to bring content closer to the header while keeping bottom padding for visual balance */
+    padding: var(--space-xs) 0 calc(var(--space-xl) / 2) 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-lg);
+    gap: calc(var(--space-lg) / 2);
 }
 
 .site-main > .container {
     display: flex;
     flex-direction: column;
-    gap: var(--space-lg);
+    gap: calc(var(--space-lg) / 2);
+    animation: fadeIn 300ms ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* ---------- Footer ---------- */
 .site-footer {
     background: var(--color-surface);
     border-top: 1px solid var(--color-border);
-    padding: var(--space-md) 0;
-    margin-top: auto;
-    position: sticky;
+    /* Reduce footer vertical padding for a tighter layout */
+    padding: calc(var(--space-md) / 2) 0;
+    /* Fixed to viewport bottom so it remains visible and stable */
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: 0;
     z-index: 100;
+    /* Ensure consistent height for layout stability */
+    height: var(--footer-height, 56px);
+    display: flex;
+    align-items: center;
 }
 
 .footer-content {
@@ -242,7 +274,13 @@ code, pre {
     align-items: center;
     justify-content: space-between;
     gap: var(--space-md);
-    flex-wrap: wrap;
+    /* keep items stable and prevent layout shifts; allow nav to scroll on very small screens */
+    flex-wrap: nowrap;
+}
+
+/* Ensure main content isn't covered by the fixed footer */
+.site-main {
+    padding-bottom: calc(var(--footer-height, 56px) + var(--space-md));
 }
 
 .footer-text {
@@ -251,11 +289,21 @@ code, pre {
     margin-bottom: 0;
 }
 
+/* Keep left text stable and allow nav to remain a fixed block */
+.footer-text { flex: 1 1 auto; }
+.footer-nav { flex: 0 0 auto; }
+
 .footer-nav {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     font-size: var(--font-size-sm);
+}
+
+/* allow horizontal scrolling for footer links on narrow viewports, preventing repositioning */
+.footer-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .footer-sep {

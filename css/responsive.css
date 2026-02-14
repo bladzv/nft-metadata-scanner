@@ -21,6 +21,11 @@
 
 .input-group .btn {
     width: 100%;
+    min-height: 48px;
+}
+
+.btn-sm {
+    min-height: 40px;
 }
 
 .footer-content {

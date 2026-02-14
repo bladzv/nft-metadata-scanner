@@ -47,7 +47,7 @@ const MAX_FILE_SIZE = 32 * 1024 * 1024;
  * @param {string} imageUrl - The resolved image URL to fetch
  * @returns {Promise<MediaResult>} Media fetch result
  */
-export async function fetchMedia(imageUrl) {
+export async function fetchMedia(imageUrl, externalSignal = null) {
     // Validate the image URL through the same security checks
     const validation = validateURL(imageUrl);
     if (!validation.valid) {
@@ -56,12 +56,27 @@ export async function fetchMedia(imageUrl) {
 
     const resolvedUrl = validation.resolvedUrl;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), MEDIA_TIMEOUT_MS);
+    let abortListener = null;
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            clearTimeout(timeoutId);
+            return { success: false, error: 'Media fetch aborted' };
+        }
+        abortListener = () => controller.abort();
+        externalSignal.addEventListener('abort', abortListener);
+    }
+
     const [response, fetchErr] = await safeAsync(
         fetch(resolvedUrl, {
             method: 'GET',
-            signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS),
+            signal: controller.signal,
         })
     );
+
+    clearTimeout(timeoutId);
+    if (externalSignal && abortListener) externalSignal.removeEventListener('abort', abortListener);
 
     if (fetchErr) {
         logError('MediaFetchError', 'Failed to download media', {

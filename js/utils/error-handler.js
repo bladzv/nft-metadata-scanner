@@ -52,26 +52,41 @@ export function logSecurity(message, context = {}) {
 
 /**
  * Maps internal error types to user-friendly messages.
+ * Each message explains what happened, why, and how to fix it.
+ * Never exposes sensitive details or system information.
  * @param {Error|string} error - The error to translate
  * @returns {string} User-friendly error message
  */
 export function getUserMessage(error) {
     const msg = error instanceof Error ? error.message : String(error);
 
+    // Comprehensive message mapping aligned with UI/UX best practices:
+    // Each message: 1) Explains what happened 2) Why it happened 3) How to fix
     const messageMap = {
-        'Failed to fetch': 'Could not connect to the server. Please check the URL and try again.',
-        'NetworkError': 'A network error occurred. Please check your connection.',
-        'AbortError': 'The request timed out. Please try again.',
-        'TypeError': 'An unexpected error occurred. Please try a different URL.',
+        'Failed to fetch': 'The URL could not be reached. Check that the URL is correct and the server is accessible.',
+        'NetworkError': 'Network connection failed. Please verify your internet connection and try again.',
+        'AbortError': 'The request took too long to complete. Please check your internet speed and try again.',
+        'TypeError': 'The server response was not in the expected format. The URL may not be a valid NFT metadata endpoint.',
+        'Invalid URL format': 'Please enter a complete URL starting with https:// (for HTTPS) or ipfs:// (for IPFS).',
+        'Only HTTPS':  'Only HTTPS URLs are allowed for security. IPFS URLs (ipfs://) are also supported.',
+        'exceeded maximum':  'The URL is too long. Please use a shorter URL.',
+        'blocked protocol': 'This URL type is not supported for security reasons. Use HTTPS or IPFS URLs only.',
+        'private': 'URLs pointing to local/private networks cannot be accessed. Please use a public URL.',
+        'not allowed': 'This server is blocked for security purposes. Please try a different URL.',
+        'SyntaxError': 'The response contained invalid data. The URL may not point to valid NFT metadata.',
+        'quota': 'The API quota has been reached. Please try again later or register for more scans.',
+        'unauthorized': 'The VirusTotal API key is invalid or expired. Please check your key and try again.',
     };
 
+    // Check for matching error patterns (case-insensitive substring match)
     for (const [key, userMsg] of Object.entries(messageMap)) {
-        if (msg.includes(key)) {
+        if (msg.toLowerCase().includes(key.toLowerCase())) {
             return userMsg;
         }
     }
 
-    return msg;
+    // Fallback for unmapped errors: generic but helpful
+    return 'Something went wrong. Please try again or contact support if the problem persists.';
 }
 
 /**
