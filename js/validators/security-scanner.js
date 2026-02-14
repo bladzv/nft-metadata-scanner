@@ -10,6 +10,9 @@ import { logError, logInfo, logSecurity, safeAsync } from '../utils/error-handle
 /** @type {string} VirusTotal API v3 base URL */
 const VT_BASE_URL = 'https://www.virustotal.com/api/v3';
 
+/** @type {string} CORS proxy for VirusTotal API calls (required for GitHub Pages) */
+const VT_PROXY = 'https://corsproxy.io/?';
+
 /** @type {number} Maximum file size accepted by VT free tier (32 MB) */
 const VT_FILE_SIZE_LIMIT = 32 * 1024 * 1024;
 
@@ -110,7 +113,7 @@ async function pollAnalysis(analysisId, apiKey) {
         }
 
         const [resp, err] = await safeAsync(
-            fetch(analysisEndpoint, {
+            fetch(`${VT_PROXY}${encodeURIComponent(analysisEndpoint)}`, {
                 method: 'GET',
                 headers: { 'x-apikey': apiKey, 'Accept': 'application/json' },
                 signal: controller.signal,
@@ -206,7 +209,7 @@ export async function scanURL(url, apiKey, externalSignal = null) {
     }
 
     const [submitResponse, submitErr] = await safeAsync(
-        fetch(submitEndpoint, {
+        fetch(`${VT_PROXY}${encodeURIComponent(submitEndpoint)}`, {
             method: 'POST',
             headers: {
                 'x-apikey': apiKey,
@@ -295,7 +298,7 @@ export async function scanFile(blob, filename, apiKey, externalSignal = null) {
     }
 
     const [submitResponse, submitErr] = await safeAsync(
-        fetch(`${VT_BASE_URL}/files`, {
+        fetch(`${VT_PROXY}${encodeURIComponent(`${VT_BASE_URL}/files`)}`, {
             method: 'POST',
             headers: { 'x-apikey': apiKey },
             body: formData,

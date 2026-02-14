@@ -693,8 +693,10 @@ function confirmApiKeyRemove() {
 async function fetchUserQuota(apiKey) {
     if (!apiKey) return null;
     try {
+        const vtEndpoint = `https://www.virustotal.com/api/v3/users/${encodeURIComponent(apiKey)}`;
+        const corsProxy = 'https://corsproxy.io/?';
         const resp = await fetch(
-            `https://www.virustotal.com/api/v3/users/${encodeURIComponent(apiKey)}`,
+            `${corsProxy}${encodeURIComponent(vtEndpoint)}`,
             {
                 method: 'GET',
                 headers: { 'x-apikey': apiKey, 'Accept': 'application/json' },
