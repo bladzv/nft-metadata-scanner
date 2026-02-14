@@ -4,11 +4,13 @@
 
 > **Secure, Client-Side NFT Metadata Validation Tool with Advanced Security Features**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue?style=for-the-badge&logo=github&logoColor=white)](https://bladzv.github.io/nft-metadata-scanner/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![OWASP Compliant](https://img.shields.io/badge/OWASP-Top%2010%20Compliant-green?style=for-the-badge&logo=shield&logoColor=white)](https://owasp.org/)
-
 </div>
+
+<p align="center">
+  <a href="https://bladzv.github.io/nft-metadata-scanner/"><img src="https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue.svg" alt="Live Demo"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://owasp.org/"><img src="https://img.shields.io/badge/OWASP-Top%2010%20Compliant-green.svg" alt="OWASP Compliant"></a>
+</p>
 
 A client-side web application for secure validation and preview of NFT metadata. Supports Enjin Blockchain, ERC-721, and ERC-1155 standards with integrated VirusTotal security scanning. Built with security best practices and OWASP Top 10 compliance.
 
