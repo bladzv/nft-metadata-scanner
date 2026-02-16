@@ -6,54 +6,29 @@
  */
 
 import { logError, logInfo, logSecurity, safeAsync } from '../utils/error-handler.js';
+import { createProcess, log as processLog, setStatus, complete } from '../utils/process-logger.js';
+import { fetchWithRetries } from '../utils/fetch-with-retries.js';
 
 /** @type {string} VirusTotal API v3 base URL */
 const VT_BASE_URL = 'https://www.virustotal.com/api/v3';
-
-/** @type {string} CORS proxy for VirusTotal API calls (required for GitHub Pages) */
-const VT_PROXY = 'https://corsproxy.io/?';
 
 /** @type {number} Maximum file size accepted by VT free tier (32 MB) */
 const VT_FILE_SIZE_LIMIT = 32 * 1024 * 1024;
 
 /**
- * @typedef {Object} ScanResult
- * @property {boolean} scanned - Whether the scan completed
- * @property {boolean} [safe] - Whether the URL/file appears safe
- * @property {Object} [stats] - Detection statistics from VT
- * @property {number} [stats.harmless] - Harmless verdicts
- * @property {number} [stats.malicious] - Malicious verdicts
- * @property {number} [stats.suspicious] - Suspicious verdicts
- * @property {number} [stats.undetected] - Undetected verdicts
- * @property {Object} [rawAnalysis] - Full analysis JSON for detail modal
- * @property {string} [error] - Error message if scan failed
- * @property {boolean} [skipped] - True if scan was skipped (no API key)
- */
-
-/**
- * Simple sliding-window rate limiter.
+ * Simple sliding-window rate limiter (client-side).
  * VirusTotal free tier: 4 requests per minute.
  */
 class RateLimiter {
-    /**
-     * @param {number} maxRequests - Max requests per window
-     * @param {number} windowMs - Window duration in milliseconds
-     */
     constructor(maxRequests, windowMs) {
         this.maxRequests = maxRequests;
         this.windowMs = windowMs;
-        /** @type {number[]} */
         this.requests = [];
     }
 
-    /**
-     * Waits until a request slot is available.
-     * @returns {Promise<void>}
-     */
     async waitForSlot() {
         const now = Date.now();
         this.requests = this.requests.filter((t) => now - t < this.windowMs);
-
         if (this.requests.length >= this.maxRequests) {
             const oldest = this.requests[0];
             const waitTime = this.windowMs - (now - oldest) + 100;
@@ -61,14 +36,9 @@ class RateLimiter {
             await new Promise((resolve) => setTimeout(resolve, waitTime));
             return this.waitForSlot();
         }
-
         this.requests.push(Date.now());
     }
 
-    /**
-     * Returns remaining request slots in the current window.
-     * @returns {number} Available request slots
-     */
     get remaining() {
         const now = Date.now();
         this.requests = this.requests.filter((t) => now - t < this.windowMs);
@@ -76,7 +46,6 @@ class RateLimiter {
     }
 }
 
-/** Shared rate limiter instance — 4 requests/minute */
 const rateLimiter = new RateLimiter(4, 60_000);
 
 /* ------------------------------------------------------------------ */
@@ -85,90 +54,98 @@ const rateLimiter = new RateLimiter(4, 60_000);
 
 /**
  * Polls a VirusTotal analysis endpoint until complete or timeout.
- * @param {string} analysisId - VT analysis ID
- * @param {string} apiKey - VirusTotal API key
- * @returns {Promise<ScanResult>} Scan result with stats and rawAnalysis
+ * @param {string} analysisId
+ * @param {string} apiKey
+ * @param {string} [processId]
+ * @returns {Promise<Object>} ScanResult-like object
  */
-async function pollAnalysis(analysisId, apiKey) {
+async function pollAnalysis(analysisId, apiKey, processId = null) {
     const analysisEndpoint = `${VT_BASE_URL}/analyses/${analysisId}`;
-    const pollIntervalMs = 2000;
+    let pollIntervalMs = 5000;
+    const maxPollIntervalMs = 30_000;
+    const pollIntervalFactor = 2.0;
     const maxPolls = 6;
     let analysisData = null;
 
-    for (let attempt = 0; attempt < maxPolls; attempt++) {
-        await rateLimiter.waitForSlot();
+    if (processId) processLog(processId, 'info', 'Starting analysis polling', { analysisId, maxPolls });
 
-        // allow optional external signal via pollAnalysis._externalSignal (set by caller)
+    for (let attempt = 0; attempt < maxPolls; attempt++) {
         const externalSignal = pollAnalysis._externalSignal ?? null;
+        if (externalSignal?.aborted) {
+            if (processId) processLog(processId, 'warn', 'Polling aborted by external signal');
+            return { scanned: false, error: 'Scan aborted' };
+        }
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15_000);
         let abortListener = null;
         if (externalSignal) {
-            if (externalSignal.aborted) {
-                clearTimeout(timeoutId);
-                return { scanned: false, error: 'Scan aborted' };
-            }
             abortListener = () => controller.abort();
             externalSignal.addEventListener('abort', abortListener);
         }
 
-        const [resp, err] = await safeAsync(
-            fetch(`${VT_PROXY}${encodeURIComponent(analysisEndpoint)}`, {
+        if (processId) processLog(processId, 'debug', `Poll attempt ${attempt + 1}/${maxPolls}`, { interval: pollIntervalMs });
+
+        // Use fetchWithRetries for resilient polling. Do NOT apply the
+        // submission rateLimiter to polling requests — polling uses conservative
+        // intervals and should not block waiting for slots.
+        const { resp, err } = await fetchWithRetries(
+            analysisEndpoint,
+            {
                 method: 'GET',
-                headers: { 'x-apikey': apiKey, 'Accept': 'application/json' },
+                headers: { 'x-apikey': apiKey, Accept: 'application/json' },
                 signal: controller.signal,
-            })
+            },
+            {
+                maxAttempts: 3,
+                baseDelayMs: 500,
+                signal: controller.signal,
+            }
         );
 
-        // cleanup
         clearTimeout(timeoutId);
         if (externalSignal && abortListener) externalSignal.removeEventListener('abort', abortListener);
 
         if (err) {
-            console.error('[VirusTotal] Network error during analysis fetch:', err.message);
+            if (processId) processLog(processId, 'error', 'Analysis fetch failed', { error: err.message });
             logError('NetworkError', 'VirusTotal analysis fetch failed', { analysisId, error: err.message });
             return { scanned: false, error: 'Could not fetch analysis results.' };
         }
 
-        if (!resp.ok) {
-            console.error('[VirusTotal] Analysis API error status:', resp.status);
-            logError('APIError', `VT analysis returned ${resp.status}`, { analysisId });
-            return { scanned: false, error: `VirusTotal analysis returned status ${resp.status}` };
+        if (!resp || !resp.ok) {
+            const status = resp?.status || 'unknown';
+            if (processId) processLog(processId, 'error', `Analysis API error: ${status}`);
+            logError('APIError', `VT analysis returned ${status}`, { analysisId });
+            return { scanned: false, error: `VirusTotal analysis returned status ${status}` };
         }
 
         const [data, parseErr] = await safeAsync(resp.json());
         if (parseErr) {
-            console.error('[VirusTotal] Failed to parse analysis JSON:', parseErr);
+            if (processId) processLog(processId, 'error', 'Failed to parse analysis response');
             return { scanned: false, error: 'Failed to parse VirusTotal analysis response' };
         }
 
         analysisData = data;
         const status = analysisData?.data?.attributes?.status;
-        console.log(`[VirusTotal] Analysis attempt ${attempt + 1}, status:`, status);
+        if (processId) processLog(processId, 'info', `Analysis status: ${status}`, { attempt: attempt + 1 });
 
         if (status === 'completed') {
+            if (processId) processLog(processId, 'info', 'Analysis completed');
             break;
         }
 
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        if (attempt < maxPolls - 1) {
+            pollIntervalMs = Math.min(pollIntervalMs * pollIntervalFactor, maxPollIntervalMs);
+            if (processId) processLog(processId, 'debug', `Waiting ${pollIntervalMs}ms before next poll`);
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        }
     }
 
-    const stats = analysisData?.data?.attributes?.stats
-        ?? analysisData?.data?.attributes?.last_analysis_stats
-        ?? null;
-
-    if (!stats) {
-        console.warn('[VirusTotal] No analysis stats in response');
-        return { scanned: true, safe: null, stats: null, rawAnalysis: analysisData, error: 'No analysis data available' };
-    }
-
-    console.log('[VirusTotal] Analysis stats:', stats);
+    const stats = analysisData?.data?.attributes?.stats ?? analysisData?.data?.attributes?.last_analysis_stats ?? null;
+    if (!stats) return { scanned: true, safe: null, stats: null, rawAnalysis: analysisData, error: 'No analysis data available' };
 
     const isSafe = (stats.malicious ?? 0) === 0 && (stats.suspicious ?? 0) === 0;
-
-    if (!isSafe) {
-        logSecurity('VirusTotal flagged resource', { stats });
-    }
+    if (!isSafe) logSecurity('VirusTotal flagged resource', { stats });
 
     return { scanned: true, safe: isSafe, stats, rawAnalysis: analysisData };
 }
@@ -177,25 +154,12 @@ async function pollAnalysis(analysisId, apiKey) {
 /*  URL Scanning                                                       */
 /* ------------------------------------------------------------------ */
 
-/**
- * Scans a URL using the VirusTotal URL scanning API.
- * Submits the URL for analysis, then polls for results.
- * @param {string} url - URL to scan
- * @param {string} apiKey - VirusTotal API key
- * @returns {Promise<ScanResult>} Scan result
- */
-export async function scanURL(url, apiKey, externalSignal = null) {
-    if (!apiKey) {
-        console.log('[VirusTotal] No API key provided, skipping scan for:', url);
-        return { scanned: false, skipped: true, error: 'No API key provided' };
-    }
+export async function scanURL(url, apiKey, externalSignal = null, options = {}) {
+    if (!apiKey) return { scanned: false, skipped: true, error: 'No API key provided' };
 
-    console.log('[VirusTotal] Starting scan for URL:', url);
     await rateLimiter.waitForSlot();
-
     const submitEndpoint = `${VT_BASE_URL}/urls`;
 
-    // Build an AbortController that respects both a timeout and an optional external signal
     const submitController = new AbortController();
     const submitTimeout = setTimeout(() => submitController.abort(), 15_000);
     let submitAbortListener = null;
@@ -209,11 +173,11 @@ export async function scanURL(url, apiKey, externalSignal = null) {
     }
 
     const [submitResponse, submitErr] = await safeAsync(
-        fetch(`${VT_PROXY}${encodeURIComponent(submitEndpoint)}`, {
+        fetch(submitEndpoint, {
             method: 'POST',
             headers: {
                 'x-apikey': apiKey,
-                'Accept': 'application/json',
+                Accept: 'application/json',
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: new URLSearchParams({ url }),
@@ -225,31 +189,68 @@ export async function scanURL(url, apiKey, externalSignal = null) {
     if (externalSignal && submitAbortListener) externalSignal.removeEventListener('abort', submitAbortListener);
 
     if (submitErr) {
-        console.error('[VirusTotal] Network error during URL submission:', submitErr.message);
         logError('NetworkError', 'VirusTotal URL submission failed', { url, error: submitErr.message });
         return { scanned: false, error: 'Could not reach VirusTotal. Scan skipped.' };
     }
 
+    // Handle HTTP 409 (AlreadyExists) specially: VirusTotal may return a
+    // payload pointing to an existing analysis for the same resource. If so,
+    // extract the existing analysis id and continue by polling it instead of
+    // treating this as an error.
+    if (submitResponse.status === 409) {
+        const [payload, parseErr] = await safeAsync(submitResponse.json());
+        if (parseErr) {
+            logError('APIError', 'VT returned 409 but response parse failed', { url });
+            return { scanned: false, error: 'VirusTotal returned 409 and response could not be parsed' };
+        }
+
+        // Try common locations for an analysis id
+        let existingAnalysisId = payload?.data?.id || payload?.meta?.analysis_id || payload?.meta?.analysis?.id || null;
+        if (!existingAnalysisId) {
+            // Fallback: search the JSON string for a hex-like id pattern
+            try {
+                const s = JSON.stringify(payload);
+                const m = s.match(/[0-9a-f]{16,64}/i);
+                if (m) existingAnalysisId = m[0];
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        if (!existingAnalysisId) {
+            logError('APIError', 'VT returned 409 but no analysis id found', { url, payload });
+            return { scanned: false, error: 'VirusTotal indicated resource exists but no analysis id was found' };
+        }
+
+        const providedProcessId = options?.processId ?? null;
+        const processId = providedProcessId || `vt-url-${existingAnalysisId.substring(0, 8)}`;
+        createProcess(processId, { type: 'url-scan', analysisId: existingAnalysisId, note: 'existing' });
+
+        pollAnalysis._externalSignal = externalSignal;
+        const resExisting = await pollAnalysis(existingAnalysisId, apiKey, processId);
+        complete(processId, resExisting.scanned ? (resExisting.safe ? 'success' : 'warning') : 'error', true);
+        pollAnalysis._externalSignal = null;
+        return resExisting;
+    }
+
     if (!submitResponse.ok) {
-        console.error('[VirusTotal] Submit API error status:', submitResponse.status);
         logError('APIError', `VT submit returned ${submitResponse.status}`, { url });
         return { scanned: false, error: `VirusTotal returned status ${submitResponse.status}` };
     }
 
     const [submitData, submitParseErr] = await safeAsync(submitResponse.json());
-    if (submitParseErr) {
-        return { scanned: false, error: 'Failed to parse VirusTotal submit response' };
-    }
+    if (submitParseErr) return { scanned: false, error: 'Failed to parse VirusTotal submit response' };
 
     const analysisId = submitData?.data?.id;
-    if (!analysisId) {
-        return { scanned: false, error: 'Invalid response from VirusTotal' };
-    }
+    if (!analysisId) return { scanned: false, error: 'Invalid response from VirusTotal' };
 
-    console.log('[VirusTotal] URL analysis ID:', analysisId);
-    // attach externalSignal to pollAnalysis so it can be observed
+    const providedProcessId = options?.processId ?? null;
+    const processId = providedProcessId || `vt-url-${analysisId.substring(0, 8)}`;
+    createProcess(processId, { type: 'url-scan', analysisId });
+
     pollAnalysis._externalSignal = externalSignal;
-    const res = await pollAnalysis(analysisId, apiKey);
+    const res = await pollAnalysis(analysisId, apiKey, processId);
+    complete(processId, res.scanned ? (res.safe ? 'success' : 'warning') : 'error', true);
     pollAnalysis._externalSignal = null;
     return res;
 }
@@ -258,30 +259,12 @@ export async function scanURL(url, apiKey, externalSignal = null) {
 /*  File Scanning                                                      */
 /* ------------------------------------------------------------------ */
 
-/**
- * Uploads a file to VirusTotal for scanning and retrieves results.
- * @param {Blob} blob - File blob to scan
- * @param {string} filename - Filename for the upload
- * @param {string} apiKey - VirusTotal API key
- * @returns {Promise<ScanResult>} Scan result
- */
-export async function scanFile(blob, filename, apiKey, externalSignal = null) {
-    if (!apiKey) {
-        console.log('[VirusTotal] No API key provided, skipping file scan');
-        return { scanned: false, skipped: true, error: 'No API key provided' };
-    }
+export async function scanFile(blob, filename, apiKey, externalSignal = null, options = {}) {
+    if (!apiKey) return { scanned: false, skipped: true, error: 'No API key provided' };
+    if (!blob || blob.size === 0) return { scanned: false, error: 'No file data to scan' };
+    if (blob.size > VT_FILE_SIZE_LIMIT) return { scanned: false, error: `File exceeds ${VT_FILE_SIZE_LIMIT / (1024 * 1024)}MB limit` };
 
-    if (!blob || blob.size === 0) {
-        return { scanned: false, error: 'No file data to scan' };
-    }
-
-    if (blob.size > VT_FILE_SIZE_LIMIT) {
-        return { scanned: false, error: `File exceeds ${VT_FILE_SIZE_LIMIT / (1024 * 1024)}MB limit` };
-    }
-
-    console.log('[VirusTotal] Uploading file for scan:', filename, 'size:', blob.size);
     await rateLimiter.waitForSlot();
-
     const formData = new FormData();
     formData.append('file', blob, filename || 'upload');
 
@@ -298,7 +281,7 @@ export async function scanFile(blob, filename, apiKey, externalSignal = null) {
     }
 
     const [submitResponse, submitErr] = await safeAsync(
-        fetch(`${VT_PROXY}${encodeURIComponent(`${VT_BASE_URL}/files`)}`, {
+        fetch(`${VT_BASE_URL}/files`, {
             method: 'POST',
             headers: { 'x-apikey': apiKey },
             body: formData,
@@ -310,83 +293,96 @@ export async function scanFile(blob, filename, apiKey, externalSignal = null) {
     if (externalSignal && uploadAbortListener) externalSignal.removeEventListener('abort', uploadAbortListener);
 
     if (submitErr) {
-        console.error('[VirusTotal] Network error during file upload:', submitErr.message);
         logError('NetworkError', 'VirusTotal file upload failed', { filename, error: submitErr.message });
         return { scanned: false, error: 'Could not upload file to VirusTotal' };
     }
 
+    // Handle 409 (resource already exists) similar to URL submission: try to
+    // extract an existing analysis id and poll that instead of failing.
+    if (submitResponse.status === 409) {
+        const [payload, parseErr] = await safeAsync(submitResponse.json());
+        if (parseErr) {
+            logError('APIError', 'VT returned 409 for file upload but response parse failed', { filename });
+            return { scanned: false, error: 'VirusTotal returned 409 and response could not be parsed' };
+        }
+
+        let existingAnalysisId = payload?.data?.id || payload?.meta?.analysis_id || payload?.meta?.analysis?.id || null;
+        if (!existingAnalysisId) {
+            try {
+                const s = JSON.stringify(payload);
+                const m = s.match(/[0-9a-f]{16,64}/i);
+                if (m) existingAnalysisId = m[0];
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        if (!existingAnalysisId) {
+            logError('APIError', 'VT returned 409 but no analysis id found for file', { filename, payload });
+            return { scanned: false, error: 'VirusTotal indicated resource exists but no analysis id was found' };
+        }
+
+        const providedProcessId = options?.processId ?? null;
+        const processId = providedProcessId || `vt-file-${existingAnalysisId.substring(0, 8)}`;
+        createProcess(processId, { type: 'file-scan', analysisId: existingAnalysisId, filename, note: 'existing' });
+
+        pollAnalysis._externalSignal = externalSignal;
+        const resExisting = await pollAnalysis(existingAnalysisId, apiKey, processId);
+        complete(processId, resExisting.scanned ? (resExisting.safe ? 'success' : 'warning') : 'error', true);
+        pollAnalysis._externalSignal = null;
+        return resExisting;
+    }
+
     if (!submitResponse.ok) {
-        console.error('[VirusTotal] File upload API error:', submitResponse.status);
         logError('APIError', `VT file upload returned ${submitResponse.status}`, { filename });
         return { scanned: false, error: `VirusTotal returned status ${submitResponse.status}` };
     }
 
     const [submitData, submitParseErr] = await safeAsync(submitResponse.json());
-    if (submitParseErr) {
-        return { scanned: false, error: 'Failed to parse VirusTotal upload response' };
-    }
+    if (submitParseErr) return { scanned: false, error: 'Failed to parse VirusTotal upload response' };
 
     const analysisId = submitData?.data?.id;
-    if (!analysisId) {
-        return { scanned: false, error: 'No analysis ID in VirusTotal response' };
-    }
+    if (!analysisId) return { scanned: false, error: 'No analysis ID in VirusTotal response' };
 
-    console.log('[VirusTotal] File analysis ID:', analysisId);
-    return await pollAnalysis(analysisId, apiKey);
+    const providedProcessId = options?.processId ?? null;
+    const processId = providedProcessId || `vt-file-${analysisId.substring(0, 8)}`;
+    createProcess(processId, { type: 'file-scan', analysisId, filename });
+
+    pollAnalysis._externalSignal = externalSignal;
+    const res = await pollAnalysis(analysisId, apiKey, processId);
+    complete(processId, res.scanned ? (res.safe ? 'success' : 'warning') : 'error', true);
+    pollAnalysis._externalSignal = null;
+    return res;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Utilities                                                          */
 /* ------------------------------------------------------------------ */
 
-/**
- * Returns the current rate limiter status.
- * @returns {{ remaining: number, limit: number }}
- */
 export function getRateLimitStatus() {
     return { remaining: rateLimiter.remaining, limit: rateLimiter.maxRequests };
 }
 
-/**
- * Returns the VirusTotal file size limit.
- * @returns {number} Max file size in bytes
- */
 export function getFileSizeLimit() {
     return VT_FILE_SIZE_LIMIT;
 }
 
-/**
- * Scans multiple URLs using VirusTotal API.
- * @param {Array<{url: string, field: string, type: string}>} urlObjects - URLs to scan
- * @param {string} apiKey - VirusTotal API key
- * @returns {Promise<Array<{url: string, field: string, type: string, result: ScanResult}>>}
- */
-export async function scanMultipleUrls(urlObjects, apiKey) {
-    if (!Array.isArray(urlObjects) || urlObjects.length === 0) {
-        return [];
-    }
-
-    if (!apiKey) {
-        return urlObjects.map(obj => ({
-            ...obj,
-            result: { scanned: false, skipped: true, error: 'No API key provided' },
-        }));
-    }
+export async function scanMultipleUrls(urlObjects, apiKey, options = {}) {
+    const { stopOnError = true } = options;
+    if (!Array.isArray(urlObjects) || urlObjects.length === 0) return [];
+    if (!apiKey) return urlObjects.map((obj) => ({ ...obj, result: { scanned: false, skipped: true, error: 'No API key provided' } }));
 
     const results = [];
-
     for (const urlObj of urlObjects) {
         try {
             const result = await scanURL(urlObj.url, apiKey);
             results.push({ ...urlObj, result });
-        } catch (error) {
-            logError('ScanError', 'Failed to scan URL', { url: urlObj.url, error: error.message });
-            results.push({
-                ...urlObj,
-                result: { scanned: false, error: 'Scan failed: ' + error.message },
-            });
+            if (stopOnError && (result.scanned !== true || result.safe === false)) break;
+        } catch (err) {
+            logError('ScanError', 'Failed to scan URL', { url: urlObj.url, error: err.message });
+            results.push({ ...urlObj, result: { scanned: false, error: 'Scan failed: ' + err.message } });
+            if (stopOnError) break;
         }
     }
-
     return results;
 }
