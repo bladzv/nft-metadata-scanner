@@ -11,6 +11,7 @@ import { fetchMetadataJSON } from './fetchers/metadata-fetcher.js';
 import { fetchMedia } from './fetchers/media-fetcher.js';
 import { logInfo, logError, getUserMessage } from './utils/error-handler.js';
 import { enableModalKeyboardHandling, disableModalKeyboardHandling } from './utils/modal-manager.js';
+import { on as onProcessEvent, getLogs } from './utils/process-logger.js';
 
 /* ------------------------------------------------------------------ */
 /*  State                                                              */
@@ -150,6 +151,27 @@ document.addEventListener('DOMContentLoaded', () => {
     aboutModal?.setAttribute('hidden', '');
     apikeyQuotaModal?.setAttribute('hidden', '');
     initRouter();
+    // If the user refreshed the page while on the results route, return
+    // them to the home page to avoid a partially-initialized results view.
+    try {
+        const isResultsHash = window.location.hash === '#results';
+        let navType = null;
+        if (performance && typeof performance.getEntriesByType === 'function') {
+            const entries = performance.getEntriesByType('navigation');
+            if (entries && entries.length > 0) navType = entries[0].type;
+        }
+        // Fallback for older browsers
+        if (!navType && performance && performance.navigation) {
+            navType = performance.navigation.type === 1 ? 'reload' : 'navigate';
+        }
+
+        if (isResultsHash && navType === 'reload') {
+            navigateToHome();
+        }
+    } catch (e) {
+        // Non-fatal; continue initialization
+    }
+
     logInfo('Application initialized');
 });
 
@@ -825,10 +847,12 @@ function clearResults() {
 
 /**
  * Creates a new step card and appends it to the results container.
+ * Enhanced with status strip and collapsible log drawer.
  * @param {string} title - Step heading text
+ * @param {string} [processId] - Optional process ID for log subscription
  * @returns {Object} References to card sub-elements for later updates
  */
-function createStepCard(title) {
+function createStepCard(title, processId = null, showLogs = true) {
     const card = document.createElement('div');
     card.className = 'scan-step-card';
     card.setAttribute('data-status', 'active');
@@ -849,15 +873,136 @@ function createStepCard(title) {
 
     header.append(iconWrap, titleEl, badgeArea);
 
+    // Status strip for live updates
+    const statusStrip = document.createElement('div');
+    statusStrip.className = 'scan-step-status-strip';
+    statusStrip.setAttribute('role', 'status');
+    statusStrip.setAttribute('aria-live', 'polite');
+    statusStrip.style.display = 'none'; // Hidden by default
+
     const body = document.createElement('div');
     body.className = 'scan-step-body';
 
-    card.append(header, body);
+    // Collapsible log drawer (optional)
+    let logDrawer = null;
+    let logContainer = null;
+    if (showLogs) {
+        logDrawer = document.createElement('details');
+        logDrawer.className = 'scan-step-log-drawer';
+        const logSummary = document.createElement('summary');
+        logSummary.className = 'scan-step-log-toggle';
+        logSummary.textContent = 'Show logs';
+        logDrawer.appendChild(logSummary);
+
+        logContainer = document.createElement('div');
+        logContainer.className = 'scan-step-log-container';
+        logContainer.setAttribute('role', 'log');
+        logContainer.setAttribute('aria-live', 'polite');
+        logDrawer.appendChild(logContainer);
+
+        // Toggle text on open/close
+        logDrawer.addEventListener('toggle', () => {
+            logSummary.textContent = logDrawer.open ? 'Hide logs' : 'Show logs';
+        });
+    }
+
+    if (logDrawer) card.append(header, statusStrip, body, logDrawer);
+    else card.append(header, statusStrip, body);
     resultsContainer.appendChild(card);
 
     requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
 
-    return { card, header, body, iconWrap, titleEl, badgeArea };
+    // Subscribe to process logs if processId provided and logs are visible
+    if (processId && logContainer) {
+        onProcessEvent(processId, 'log', (entry) => {
+            appendLogEntry(logContainer, entry);
+        });
+
+        onProcessEvent(processId, 'statusChange', (data) => {
+            updateStatusStrip(statusStrip, data.status);
+        });
+    }
+
+    return { card, header, body, iconWrap, titleEl, badgeArea, statusStrip, logContainer, logDrawer };
+}
+
+/**
+ * Creates and appends a log drawer to an existing step card (used when logs
+ * should be revealed after an interaction, e.g., Media Scan choice).
+ * @param {Object} step - Step object returned from createStepCard
+ * @param {string|null} processId - Optional process id to subscribe to
+ */
+function attachLogDrawerToStep(step, processId = null) {
+    if (!step || !step.card || step.logDrawer) return;
+
+    const logDrawer = document.createElement('details');
+    logDrawer.className = 'scan-step-log-drawer';
+    const logSummary = document.createElement('summary');
+    logSummary.className = 'scan-step-log-toggle';
+    logSummary.textContent = 'Show logs';
+    logDrawer.appendChild(logSummary);
+
+    const logContainer = document.createElement('div');
+    logContainer.className = 'scan-step-log-container';
+    logContainer.setAttribute('role', 'log');
+    logContainer.setAttribute('aria-live', 'polite');
+    logDrawer.appendChild(logContainer);
+
+    logDrawer.addEventListener('toggle', () => {
+        logSummary.textContent = logDrawer.open ? 'Hide logs' : 'Show logs';
+    });
+
+    step.card.appendChild(logDrawer);
+    // expose the new nodes back onto the step object for callers
+    step.logDrawer = logDrawer;
+    step.logContainer = logContainer;
+
+    if (processId) {
+        onProcessEvent(processId, 'log', (entry) => appendLogEntry(logContainer, entry));
+        onProcessEvent(processId, 'statusChange', (data) => updateStatusStrip(step.statusStrip, data.status));
+    }
+}
+
+/**
+ * Appends a log entry to the log container.
+ * @param {HTMLElement} container - Log container element
+ * @param {Object} entry - Log entry
+ */
+function appendLogEntry(container, entry) {
+    const logEntry = document.createElement('div');
+    logEntry.className = `scan-step-log-entry log-${entry.level}`;
+    
+    const timestamp = document.createElement('span');
+    timestamp.className = 'log-timestamp';
+    timestamp.textContent = new Date(entry.timestamp).toLocaleTimeString();
+    
+    const message = document.createElement('span');
+    message.className = 'log-message';
+    message.textContent = entry.message;
+    
+    logEntry.append(timestamp, message);
+    
+    if (entry.meta && Object.keys(entry.meta).length > 0) {
+        const meta = document.createElement('pre');
+        meta.className = 'log-meta';
+        meta.textContent = JSON.stringify(entry.meta, null, 2);
+        logEntry.appendChild(meta);
+    }
+    
+    container.appendChild(logEntry);
+    
+    // Auto-scroll to bottom
+    container.scrollTop = container.scrollHeight;
+}
+
+/**
+ * Updates the status strip with current operation info.
+ * @param {HTMLElement} strip - Status strip element
+ * @param {string} status - Status message
+ */
+function updateStatusStrip(strip, status) {
+    strip.textContent = status;
+    strip.style.display = status ? 'block' : 'none';
 }
 
 /**
@@ -1396,7 +1541,10 @@ async function handleScanSubmit(event) {
     try {
         await runPipeline(rawUrl, scanAbortController.signal);
     } catch (err) {
-        logError('PipelineError', 'Unhandled error in scan pipeline', { error: err.message });
+        // Log full error (message + stack) to aid debugging during development
+        logError('PipelineError', 'Unhandled error in scan pipeline', { error: err && err.message, stack: err && err.stack });
+        // Show a user-friendly message in the UI
+        try { showScanErrorModal(getUserMessage(err)); } catch (e) { /* ignore UI errors */ }
     } finally {
         setScanLoading(false);
         // cleanup controller after scan finishes
@@ -1451,17 +1599,29 @@ async function runPipeline(rawUrl, externalSignal = null) {
     };
 
     /* ---- Step 1: URL Security Scan (VirusTotal) ---- */
-    const step1 = createStepCard('URL Security Scan (VirusTotal)');
+    const step1ProcessId = `vt-ui-${Math.random().toString(36).substring(2,10)}`;
+    const step1 = createStepCard('URL Security Scan (VirusTotal)', step1ProcessId);
     const urlHeaders = ['Status', 'Scanned URL', 'RESULTS', 'More Details'];
     const { wrapper: uWrap, tbody: uTbody } = createScanTable(urlHeaders);
     const uPlaceholder = createPlaceholderRow(4);
     uTbody.appendChild(uPlaceholder);
     step1.body.appendChild(uWrap);
 
-    const urlScan = await scanURL(resolvedUrl, vtApiKey, externalSignal);
+    const urlScan = await scanURL(resolvedUrl, vtApiKey, externalSignal, { processId: step1ProcessId });
 
     uTbody.removeChild(uPlaceholder);
     uTbody.appendChild(buildUrlScanRow(resolvedUrl, urlScan));
+
+    // Fail-fast: stop if scan did not complete successfully
+    if (urlScan.scanned !== true) {
+        setStepStatus(step1, 'error');
+        step1.body.insertAdjacentHTML(
+            'beforeend',
+            '<p class="step-msg step-msg-error">URL scan did not complete successfully. Scan stopped.</p>'
+        );
+        showScanErrorModal(urlScan.error || 'URL scan failed to complete. Please try again.');
+        return;
+    }
 
     if (urlScan.safe === false) {
         setStepStatus(step1, 'error');
@@ -1482,7 +1642,7 @@ async function runPipeline(rawUrl, externalSignal = null) {
     }
 
     /* ---- Step 2: Fetch Metadata JSON ---- */
-    const step2 = createStepCard('Fetching Metadata...');
+    const step2 = createStepCard('Fetching Metadata...', null, false);
     const fetchResult = await fetchMetadataJSON(resolvedUrl, externalSignal);
 
     if (!fetchResult.success) {
@@ -1497,7 +1657,7 @@ async function runPipeline(rawUrl, externalSignal = null) {
     step2.titleEl.textContent = 'Metadata Fetched Successfully';
 
     /* ---- Step 3: Metadata Parsing & Validation ---- */
-    const step3 = createStepCard('Metadata Parsing & Validation');
+    const step3 = createStepCard('Metadata Parsing & Validation', null, false);
     const parseResult = parseMetadata(fetchResult.text);
 
     if (!parseResult.valid) {
@@ -1523,7 +1683,7 @@ async function runPipeline(rawUrl, externalSignal = null) {
     }
 
     /* ---- Step 4: Parsed Metadata + Collapsible Raw JSON ---- */
-    const step4 = createStepCard('Parsed Metadata');
+    const step4 = createStepCard('Parsed Metadata', null, false);
     setStepStatus(step4, 'success');
 
     renderParsedMetadata(step4.body, parseResult);
@@ -1548,7 +1708,7 @@ async function runPipeline(rawUrl, externalSignal = null) {
     const allUrls = extractAllUrls(parseResult.raw, parseResult.standard);
 
     if (allUrls.length === 0) {
-        const stepEmpty = createStepCard('Media Security Scan');
+        const stepEmpty = createStepCard('Media Security Scan', null, false);
         setStepStatus(stepEmpty, 'skipped');
         stepEmpty.body.innerHTML = '<p class="step-msg">No media URLs found in metadata.</p>';
         logInfo('Pipeline complete (no media)', { url: rawUrl });
@@ -1561,7 +1721,7 @@ async function runPipeline(rawUrl, externalSignal = null) {
             ? parseResult.raw.fallback_image
             : null;
 
-    const step5 = createStepCard('Media Security Scan');
+    const step5 = createStepCard('Media Security Scan', null, false);
     setStepStatus(step5, 'pending');
     step5.iconWrap.innerHTML = STEP_ICONS.pending;
 
@@ -1645,17 +1805,25 @@ async function runPipeline(rawUrl, externalSignal = null) {
     /* ---- Steps 7+8: Scan media URLs one-by-one, then upload files ---- */
     for (const mediaObj of urlsToScan) {
         // 7a: URL Scan for this media
-        const mediaStep = createStepCard(`URL Scan: ${mediaObj.field.replace('.url', '')}`);
+        const mediaProcessId = `vt-ui-${Math.random().toString(36).substring(2,10)}`;
+        const mediaStep = createStepCard(`URL Scan: ${mediaObj.field.replace('.url', '')}`, mediaProcessId);
         const mHeaders = ['Status', 'Field', 'Scanned URL', 'RESULTS', 'More Details'];
         const { wrapper: mWrap, tbody: mTbody } = createScanTable(mHeaders);
         const mPlaceholder = createPlaceholderRow(5);
         mTbody.appendChild(mPlaceholder);
         mediaStep.body.appendChild(mWrap);
 
-        const mResult = await scanURL(mediaObj.url, vtApiKey, externalSignal);
+        const mResult = await scanURL(mediaObj.url, vtApiKey, externalSignal, { processId: mediaProcessId });
 
         mTbody.removeChild(mPlaceholder);
         mTbody.appendChild(buildMediaUrlScanRow(mediaObj, mResult));
+
+        // Fail-fast: stop if scan did not complete successfully
+        if (mResult.scanned !== true) {
+            setStepStatus(mediaStep, 'error');
+            showScanErrorModal(mResult.error || 'Media URL scan failed to complete. The scan has been stopped.');
+            return;
+        }
 
         if (mResult.safe === false) {
             setStepStatus(mediaStep, 'error');
@@ -1673,7 +1841,8 @@ async function runPipeline(rawUrl, externalSignal = null) {
 
         // 7b: File Scan — download media and upload to VT /files endpoint
         if (mediaObj.type === 'media' && mResult.safe !== false) {
-            const fileStep = createStepCard(`File Scan: ${mediaObj.field.replace('.url', '')}`);
+            const fileProcessId = `vt-ui-${Math.random().toString(36).substring(2,10)}`;
+            const fileStep = createStepCard(`File Scan: ${mediaObj.field.replace('.url', '')}`, fileProcessId);
             const fHeaders = ['Status', 'Type', 'Size', 'Media Preview', 'VirusTotal Results', 'More Details'];
             const { wrapper: fWrap, tbody: fTbody } = createScanTable(fHeaders);
             const fPlaceholder = createPlaceholderRow(6);
@@ -1698,10 +1867,17 @@ async function runPipeline(rawUrl, externalSignal = null) {
             }
 
             // Upload blob to VirusTotal /files endpoint
-            const fileResult = await scanFile(mediaFetchResult.blob, `media_${mediaObj.field}`, vtApiKey, externalSignal);
+            const fileResult = await scanFile(mediaFetchResult.blob, `media_${mediaObj.field}`, vtApiKey, externalSignal, { processId: fileProcessId });
 
             fTbody.removeChild(fPlaceholder);
             fTbody.appendChild(buildFileScanRow(mediaFetchResult, fileResult));
+
+            // Fail-fast: stop if file scan did not complete successfully
+            if (fileResult.scanned !== true) {
+                setStepStatus(fileStep, 'error');
+                showScanErrorModal(fileResult.error || 'Media file scan failed to complete. The scan has been stopped.');
+                return;
+            }
 
             if (fileResult.safe === false) {
                 setStepStatus(fileStep, 'error');
@@ -1723,7 +1899,7 @@ async function runPipeline(rawUrl, externalSignal = null) {
     }
 
     /* ---- Summary ---- */
-    const summaryCard = createStepCard('Scan Summary');
+    const summaryCard = createStepCard('Scan Summary', null, false);
     setStepStatus(summaryCard, 'success');
     summaryCard.body.innerHTML = '<p>Scan of this metadata has been completed successfully!</p>';
 
@@ -1746,11 +1922,17 @@ async function runPipeline(rawUrl, externalSignal = null) {
 
     summaryTable.appendChild(tbody);
     summaryCard.body.appendChild(summaryTable);
-    if (typeof siteMain !== 'undefined' && siteMain) {
-        siteMain.appendChild(summaryCard);
-    } else if (resultsContainer) {
-        // Fallback: append to results container when siteMain isn't available
-        resultsContainer.appendChild(summaryCard);
+    // Append summary to the same `resultsContainer` as other step cards so
+    // it shares the same width and layout constraints.
+    if (resultsContainer) {
+        resultsContainer.appendChild(summaryCard.card);
+        // Add a small spacer so the final card doesn't butt up against the footer
+        const spacer = document.createElement('div');
+        spacer.className = 'results-footer-spacer';
+        resultsContainer.appendChild(spacer);
+    } else if (typeof siteMain !== 'undefined' && siteMain) {
+        // Fallback: if results container is missing, append to siteMain
+        siteMain.appendChild(summaryCard.card);
     }
 
     logInfo('Pipeline complete', { url: rawUrl, standard: parseResult.standard });
