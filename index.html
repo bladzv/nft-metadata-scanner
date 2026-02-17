@@ -105,10 +105,16 @@
                             </button>
                         </div>
                         <div class="modal-body">
-                            <p id="scan-error-body">An error occurred during the scan. The scan has been stopped to protect your session.</p>
-                            <p class="input-help">Please refresh the page to try again. You can also save your API key again if necessary.</p>
+                            <p id="scan-error-body">VirusTotal is currently unavailable; the scan will continue without VirusTotal. Results may be incomplete.</p>
+                                <p id="scan-error-help" class="input-help">You can retry VirusTotal scans by saving your API key again or refreshing the page.</p>
+                                <p id="scan-error-flagged-help" class="input-help" hidden><strong>Proceed with caution:</strong> VirusTotal marked this resource as potentially unsafe. Only continue if you understand the risks; otherwise choose Home or Close.</p>
                         </div>
                         <div class="modal-footer modal-footer-actions">
+                            <!-- Flagged state buttons: hidden by default; shown when modal is opened for flagged results -->
+                            <button class="btn btn-warning" id="scan-error-proceed-btn" type="button" hidden disabled>Proceed</button>
+                            <button class="btn btn-secondary" id="scan-error-main-btn" type="button" hidden>Home</button>
+
+                            <!-- Default buttons for non-flagged errors -->
                             <button class="btn btn-secondary" id="scan-error-close-footer" type="button">Close</button>
                             <button class="btn btn-primary" id="scan-error-refresh-btn" type="button">Refresh Page</button>
                         </div>

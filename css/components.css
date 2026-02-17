@@ -399,6 +399,64 @@
 .input-toggle[aria-pressed="true"] .icon-eye-off {
     display: none;
 }
+
+/* ---------- VirusTotal detail button centering overrides ---------- */
+/* Ensure the inline detail control (magnify button + label) is perfectly
+   centered and matches the VT badge sizing. These rules are intentionally
+   specific to table cells to avoid affecting other button variants. */
+.scan-table td .vt-details,
+.metadata-table td .vt-details {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.scan-table td .vt-details .vt-inline-btn,
+.metadata-table td .vt-details .vt-inline-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+/* Make sure any icon inside the button is centered and scaled */
+.scan-table td .vt-details .vt-inline-btn > svg,
+.scan-table td .vt-details .vt-inline-btn img,
+.metadata-table td .vt-details .vt-inline-btn > svg,
+.metadata-table td .vt-details .vt-inline-btn img {
+    display: block;
+    max-width: 70%;
+    max-height: 70%;
+}
+
+.scan-table td .vt-details .vt-label,
+.metadata-table td .vt-details .vt-label {
+    display: block;
+    width: 100%;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--font-size-sm);
+    letter-spacing: 0.08em;
+}
+
+/* Mobile: slightly smaller buttons to match other compact badge sizes */
+@media (max-width: 640px) {
+    .scan-table td .vt-details .vt-inline-btn,
+    .metadata-table td .vt-details .vt-inline-btn {
+        width: 44px;
+        height: 44px;
+    }
+}
 .input-toggle[aria-pressed="true"] {
     color: var(--color-primary);
 }
@@ -418,6 +476,28 @@
     color: var(--color-text-muted);
     margin-top: var(--space-xs);
     margin-bottom: 8px;
+}
+
+/* Flagged/malicious stop help — high-visibility warning */
+#scan-error-flagged-help {
+    background-color: rgba(245, 158, 11, 0.06); /* subtle orange tint */
+    border-left: 4px solid var(--color-warning);
+    padding: calc(var(--space-xs) + 2px) var(--space-sm);
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    font-weight: 600;
+    margin-top: var(--space-sm);
+    display: block;
+}
+#scan-error-flagged-help::before {
+    content: "⚠";
+    margin-right: 0.5rem;
+    color: var(--color-warning);
+    font-size: 1.05em;
+}
+#scan-error-flagged-help strong {
+    color: var(--color-warning);
+    font-weight: 700;
 }
 
 /* Add a bit of separation between the API key help text and the input */
@@ -455,20 +535,133 @@ details[open] > summary::before {
 .scan-table td .vt-malicious,
 .scan-table td .vt-suspicious,
 .scan-table td .vt-clean,
-.scan-table td .vt-undetected {
-    display: block;
-    line-height: 1.25;
+.scan-table td .vt-undetected,
+.metadata-table td .vt-malicious,
+.metadata-table td .vt-suspicious,
+.metadata-table td .vt-clean,
+.metadata-table td .vt-undetected {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-right: 0.5rem;
+    text-align: center;
 }
-.scan-table td .vt-malicious { color: var(--color-error); }
-.scan-table td .vt-suspicious { color: #d97706; }
-.scan-table td .vt-clean { color: var(--color-text); }
-.scan-table td .vt-undetected { color: var(--color-text-muted); }
 
-/* Remove border/background for undetected badge to match inline text style */
-.scan-table td .vt-undetected {
-    border: none;
+/* Wrapper for inline VT detail button to match badge sizing */
+.scan-table td .vt-details,
+.metadata-table td .vt-details {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-right: 0.5rem;
+    text-align: center;
+    box-sizing: border-box;
+    width: 104px; /* match vt-* container width */
+    min-width: 104px;
+    padding: 0.25rem 0;
+}
+
+/* Parent badge containers are neutral; numeric box (.vt-count) holds solid color */
+.vt-clean, .scan-table td .vt-clean, .metadata-table td .vt-clean,
+.vt-malicious, .scan-table td .vt-malicious, .metadata-table td .vt-malicious,
+.vt-suspicious, .scan-table td .vt-suspicious, .metadata-table td .vt-suspicious,
+.vt-undetected, .scan-table td .vt-undetected, .metadata-table td .vt-undetected {
     background: transparent;
-    padding: 0;
+    border: none;
+    color: inherit;
+}
+
+/* Box styling for the numeric count */
+.vt-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+/* Solid, type-specific backgrounds with consistent sizing */
+.vt-clean .vt-count { background: #16a34a; color: #ffffff; }
+.vt-malicious .vt-count { background: var(--color-error); color: #fff; }
+.vt-suspicious .vt-count { background: var(--color-warning); color: #fff; }
+.vt-undetected .vt-count { background: var(--color-secondary); color: var(--color-text); }
+
+/* Label below the count */
+.vt-label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: inherit;
+    opacity: 0.95;
+    font-weight: 600;
+    white-space: nowrap; /* prevent splitting across lines */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Ensure the whole badge (count + label) occupies the same box for consistent gaps */
+.scan-table td .vt-malicious,
+.scan-table td .vt-suspicious,
+.scan-table td .vt-clean,
+.scan-table td .vt-undetected,
+.metadata-table td .vt-malicious,
+.metadata-table td .vt-suspicious,
+.metadata-table td .vt-clean,
+.metadata-table td .vt-undetected {
+    box-sizing: border-box;
+    width: 104px; /* increased fixed badge width to reduce label wrapping */
+    min-width: 104px;
+    padding: 0.25rem 0; /* small vertical padding so label fits */
+    text-align: center;
+}
+
+/* Consolidated: ensure all vt-* badges (including vt-details) share identical sizing/layout */
+.vt-clean, .vt-malicious, .vt-suspicious, .vt-undetected, .vt-details,
+.scan-table td .vt-clean, .scan-table td .vt-malicious, .scan-table td .vt-suspicious, .scan-table td .vt-undetected, .scan-table td .vt-details,
+.metadata-table td .vt-clean, .metadata-table td .vt-malicious, .metadata-table td .vt-suspicious, .metadata-table td .vt-undetected, .metadata-table td .vt-details {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-right: 0.5rem;
+    text-align: center;
+    box-sizing: border-box;
+    width: 104px;
+    min-width: 104px;
+    padding: 0.25rem 0;
+}
+
+.vt-label {
+    min-height: 1.1rem; /* keep label line-height consistent */
+    line-height: 1.1;
+    display: block;
+}
+
+@media (max-width: 420px) {
+    .scan-table td .vt-malicious,
+    .scan-table td .vt-suspicious,
+    .scan-table td .vt-clean,
+    .scan-table td .vt-undetected,
+    .scan-table td .vt-details,
+    .metadata-table td .vt-malicious,
+    .metadata-table td .vt-suspicious,
+    .metadata-table td .vt-clean,
+    .metadata-table td .vt-undetected,
+    .metadata-table td .vt-details {
+        width: 72px;
+        min-width: 72px;
+    }
+    .vt-count { width: 44px; height: 44px; }
 }
 
 /* Match spacing for URL help text to keep inputs consistent */
@@ -736,10 +929,10 @@ details[open] > summary::before {
     color: var(--color-text-muted);
     font-size: 0.875rem;
 }
-
-.example-label {
-    color: var(--color-text-muted);
-}
+        display: inline-block;
+        min-width: 88px; /* ensures timestamp column keeps enough width */
+        text-align: right;
+        margin-right: var(--space-sm);
 
 /* ---------- About Panel ---------- */
 .about-panel .card {
@@ -1356,9 +1549,37 @@ table,
 .quota-table th,
 .quota-table td,
 .metadata-table th,
+
+/* Label column sizing for vertical key/value tables
+   Keep a consistent label width so value columns align and gaps are stable.
+   This is responsive: on narrow viewports the label width reduces to avoid overflow. */
+:root {
+    --metadata-label-width: 320px;
+}
+
+.metadata-table th,
+.scan-table th {
+    width: var(--metadata-label-width);
+    max-width: 45%;
+    padding-right: var(--space-md);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 220px;
+}
+
+@media (max-width: 480px) {
+    :root { --metadata-label-width: 140px; }
+    .metadata-table th,
+    .scan-table th {
+        width: var(--metadata-label-width);
+    }
+}
 .metadata-table td {
     /* enforce a muted border color for gridlines */
     border-color: var(--color-border) !important;
+    /* vertically center header and cell content for better alignment */
+    vertical-align: middle;
     color-scheme: dark; /* ensure color rendering consistent in dark theme */
 }
 
@@ -1537,8 +1758,51 @@ table,
     align-items: center;
     gap: var(--space-sm);
     flex-wrap: wrap;
+    position: relative; /* needed for absolutely-positioned retry control */
 }
 
+/* Retry button positioned in the upper-right corner of a step card */
+.scan-step-retry {
+    position: absolute;
+    top: 0; /* moved further up and anchored to the top of the header */
+    right: 0.25rem; /* keep existing right offset */
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    opacity: 1;
+
+    /* compact sizing (override .btn defaults) */
+    min-height: 28px;
+    min-width: 28px;
+    border-radius: var(--radius-md);
+
+    /* Solid primary appearance */
+    background-color: var(--color-primary);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+    transition: background-color var(--transition-fast), transform 120ms ease;
+    z-index: 20;
+
+    /* align visually with the header content */
+    transform: translateY(-10%);
+}
+
+.scan-step-retry:hover:not(:disabled),
+.scan-step-retry:focus:not(:disabled) {
+    background-color: var(--color-primary-hover);
+    transform: translateY(-12%);
+    outline: none;
+}
+
+.scan-step-retry:disabled {
+    opacity: 0.6;
+    cursor: progress;
+    filter: grayscale(8%);
+}
+
+.scan-step-retry[hidden] {
+    display: none !important;
+}
 .scan-step-icon {
     flex-shrink: 0;
     width: 1.5rem;
@@ -1686,12 +1950,43 @@ table,
 .log-meta {
     grid-column: 1 / -1;
     margin: var(--space-xs) 0 0;
-    padding: var(--space-xs);
+    padding: var(--space-sm);
     background: rgba(0, 0, 0, 0.05);
     border-radius: var(--radius-sm);
-    font-size: 0.65rem;
-    overflow-x: auto;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    font-family: var(--font-mono);
+    white-space: pre-wrap; /* allow wrapping while preserving whitespace */
+    word-break: break-word; /* break long tokens */
+    overflow-x: auto; /* keep horizontal scroll for extremely long lines */
+    max-height: 12rem; /* limit size of log blocks */
+    overflow-y: auto; /* allow vertical scrolling when large */
 }
+
+/* New: compact table layout for friendly meta display */
+.log-meta-table {
+    grid-column: 1 / -1;
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--space-xs);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+.log-meta-table th {
+    text-align: left;
+    padding: 0.25rem 0.75rem 0.25rem 0;
+    color: var(--color-text-muted);
+    width: 36%;
+    vertical-align: top;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.log-meta-table td {
+    padding: 0.25rem 0;
+    color: var(--color-text);
+    word-break: break-word;
+}
+
 
 .log-info .log-message {
     color: var(--color-text);
@@ -1815,6 +2110,62 @@ table,
     text-align: center;
 }
 
+/* Compact column widths for the scan summary table so it fits inside step cards */
+.scan-summary-table {
+    min-width: 0; /* override .scan-table's large minimum */
+    table-layout: fixed;
+}
+.scan-summary-table th,
+.scan-summary-table td {
+    padding: var(--space-xs) var(--space-sm);
+    /* increased for readability */
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Center Scan Type column and keep the table balanced */
+.scan-summary-table th:first-child,
+.scan-summary-table td:first-child {
+    width: 46%;
+    min-width: 120px;
+    text-align: center; /* centered as requested */
+}
+
+.scan-summary-table th:not(:first-child),
+.scan-summary-table td:not(:first-child) {
+    width: 18%;
+    min-width: 44px;
+    text-align: center;
+}
+
+/* Ensure the summary table stretches cleanly to the card width */
+.scan-summary-table {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Color coding for summary columns: SAFE (green) / UNSAFE (red) */
+.scan-summary-table th:nth-child(3),
+.scan-summary-table td:nth-child(3) {
+    color: var(--color-success);
+    font-weight: 600;
+}
+
+.scan-summary-table th:nth-child(4),
+.scan-summary-table td:nth-child(4) {
+    color: var(--color-error);
+    font-weight: 600;
+}
+
+/* Remove right border on the last column for a cleaner edge */
+.scan-summary-table th:last-child,
+.scan-summary-table td:last-child {
+    border-right: none;
+}
+
 /* Column resize handle */
 .scan-table th .col-resize-handle {
     position: absolute;
@@ -1861,6 +2212,14 @@ table,
     text-align: center !important;
 }
 
+/* media preview cell: left aligned and vertically centered */
+.cell-media {
+    display: flex;
+    align-items: center; /* vertical center */
+    justify-content: flex-start; /* left align */
+    gap: var(--space-sm);
+}
+
 /* ---------- Metadata Table ---------- */
 .metadata-table-wrapper {
     overflow-x: auto;
@@ -1893,6 +2252,13 @@ table,
     white-space: nowrap;
     width: 30%;
     min-width: 120px;
+}
+
+/* Force vertical centering for header cells in scan/metadata/result tables */
+.metadata-table th,
+.scan-table th,
+.scan-results-table th {
+    vertical-align: middle !important;
 }
 
 .metadata-table td {
@@ -2116,16 +2482,95 @@ table,
 /* Parsed analysis table inside VT detail modal */
 #vt-detail-parsed {
     margin-bottom: var(--space-md);
+    overflow-x: auto; /* allow horizontal scroll as last resort */
 }
 
 #vt-detail-parsed .scan-table {
-    min-width: auto;
+    min-width: 0;                /* allow table to shrink to modal width */
+    width: 100%;                 /* fill available modal width */
+    table-layout: auto;          /* allow cells to size naturally and wrap */
+    font-size: 0.95rem;          /* slightly larger for readability in modal */
 }
 
 #vt-detail-parsed .scan-table th,
 #vt-detail-parsed .scan-table td {
-    padding: var(--space-xs) var(--space-sm);
+    padding: 0.5rem 0.75rem;     /* comfortable touch/click targets */
     font-size: var(--font-size-sm);
+    white-space: normal;         /* allow wrapping */
+    word-break: break-word;      /* break long tokens */
+    overflow-wrap: anywhere;     /* aggressively wrap long strings */
+    vertical-align: top;
+}
+
+/* VT filter toolbar (appears above the engine results table) */
+.vt-filter-toolbar {
+    display: flex;
+    gap: var(--space-md);
+    align-items: center;
+    margin-bottom: var(--space-sm);
+    flex-wrap: wrap;
+}
+.vt-filter-toolbar .filter-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.filter-select,
+.filter-input {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    padding: 0.375rem 0.5rem;
+    border-radius: var(--radius-sm);
+    min-width: 8rem;
+}
+
+/* Sortable table headers inside VT modal */
+#vt-detail-parsed .scan-table th.sortable {
+    cursor: pointer;
+    position: relative;
+}
+#vt-detail-parsed .scan-table th.sortable::after {
+    content: '\2195';
+    font-size: 0.85rem;
+    opacity: 0.55;
+    margin-left: 0.5rem;
+}
+#vt-detail-parsed .scan-table th.sortable.sort-asc::after { content: '\2191'; }
+#vt-detail-parsed .scan-table th.sortable.sort-desc::after { content: '\2193'; }
+
+/* Explicitly constrain column widths so table fits the modal */
+#vt-detail-parsed .scan-table th:nth-child(1),
+#vt-detail-parsed .scan-table td:nth-child(1) {
+    /* Engine */
+    width: 40%;
+    max-width: 40%;
+    min-width: 8rem;
+}
+#vt-detail-parsed .scan-table th:nth-child(2),
+#vt-detail-parsed .scan-table td:nth-child(2) {
+    /* Category */
+    width: 30%;
+    max-width: 30%;
+    min-width: 6rem;
+}
+#vt-detail-parsed .scan-table th:nth-child(3),
+#vt-detail-parsed .scan-table td:nth-child(3) {
+    /* Result */
+    width: 30%;
+    max-width: 30%;
+    min-width: 6rem;
+}
+
+/* Reduce header label weight to prevent overflow */
+#vt-detail-parsed .scan-table thead th {
+    font-weight: 600;
+    letter-spacing: 0.06em;
+}
+
+/* Backstop: ensure modal can still scroll horizontally on very small viewports */
+.modal-vt-detail #vt-detail-parsed {
+    -webkit-overflow-scrolling: touch;
 }
 
 .modal-media {
@@ -2161,6 +2606,25 @@ table,
 }
 
 .vt-undetected {
+    color: var(--color-text-muted);
+}
+
+/* Ensure textual VT result labels inside table cells keep their color
+   (overrides consolidated badge-neutral rule `.scan-table td .vt-* { color: inherit; }`). */
+.scan-table td span.vt-clean,
+.metadata-table td span.vt-clean {
+    color: var(--color-success);
+}
+.scan-table td span.vt-malicious,
+.metadata-table td span.vt-malicious {
+    color: var(--color-error);
+}
+.scan-table td span.vt-suspicious,
+.metadata-table td span.vt-suspicious {
+    color: var(--color-warning);
+}
+.scan-table td span.vt-undetected,
+.metadata-table td span.vt-undetected {
     color: var(--color-text-muted);
 }
 
@@ -2218,5 +2682,38 @@ table,
 .results-footer-spacer {
     height: var(--space-2xl, 3rem);
     width: 100%;
+}
+
+/* Box inline VT details button to match VT summary badges */
+.vt-inline-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    min-height: 56px;
+    padding: 0;
+    border-radius: 8px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    font-size: 1.125rem;
+    line-height: 1;
+    margin-left: var(--space-sm);
+}
+
+.vt-inline-btn:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+}
+
+.vt-inline-btn:focus {
+    outline: 3px solid rgba(99,102,241,0.18);
+    outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+    .vt-inline-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
 }
 

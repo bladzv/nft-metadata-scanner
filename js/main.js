@@ -87,9 +87,19 @@ const mediaPreviewImg = document.getElementById('media-preview-img');
 // Scan error modal (shown when pipeline stops due to an error)
 const scanErrorModal = document.getElementById('scan-error-modal');
 const scanErrorBody = document.getElementById('scan-error-body');
+const scanErrorHelp = document.getElementById('scan-error-help');
+const scanErrorFlaggedHelp = document.getElementById('scan-error-flagged-help');
 const scanErrorCloseBtn = document.getElementById('scan-error-close-btn');
 const scanErrorCloseFooter = document.getElementById('scan-error-close-footer');
 const scanErrorRefreshBtn = document.getElementById('scan-error-refresh-btn');
+// New: flagged-mode modal controls
+const scanErrorProceedBtn = document.getElementById('scan-error-proceed-btn');
+const scanErrorMainBtn = document.getElementById('scan-error-main-btn');
+
+// Internal state for scan-error modal interactions (countdown, promise resolve, handlers)
+let _scanErrorCountdownTimer = null;
+let _scanErrorResolve = null;
+const _scanErrorHandlers = { proceed: null, main: null, close: null, refresh: null };
 
 // Navigation
 const inputSection = document.querySelector('.input-section');
@@ -173,6 +183,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     logInfo('Application initialized');
+
+
 });
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +210,33 @@ function bindEvents() {
     aboutCloseBtn?.addEventListener('click', hideAboutModal);
     aboutOkBtn?.addEventListener('click', hideAboutModal);
     aboutModal?.addEventListener('click', (e) => { if (e.target === aboutModal) hideAboutModal(); });
+
+    // Global handlers for Scan Error modal buttons so they behave even if
+    // the modal was manipulated in DevTools or shown in different code paths.
+    if (scanErrorProceedBtn) {
+        scanErrorProceedBtn.addEventListener('click', () => {
+            // If the proceed button is still disabled (countdown), ignore clicks
+            if (scanErrorProceedBtn.disabled) return;
+            if (_scanErrorResolve) {
+                try { _scanErrorResolve('proceed'); } catch (e) { /* ignore */ }
+                _scanErrorResolve = null;
+            }
+            _cleanupScanErrorModalState();
+            hideScanErrorModal();
+        });
+    }
+
+    if (scanErrorMainBtn) {
+        scanErrorMainBtn.addEventListener('click', () => {
+            if (_scanErrorResolve) {
+                try { _scanErrorResolve('main'); } catch (e) { /* ignore */ }
+                _scanErrorResolve = null;
+            }
+            _cleanupScanErrorModalState();
+            hideScanErrorModal();
+            navigateToHome();
+        });
+    }
 
     // API key
     apikeyActionBtn?.addEventListener('click', handleApiKeyAction);
@@ -454,17 +493,159 @@ function hideMediaPreviewModal() {
  * Show the scan error modal with a descriptive message and abort any running scan.
  * @param {string} message
  */
-function showScanErrorModal(message) {
-    try { abortScan(); } catch (e) {}
+function _cleanupScanErrorModalState() {
+    // Clear countdown
+    if (_scanErrorCountdownTimer) {
+        clearInterval(_scanErrorCountdownTimer);
+        _scanErrorCountdownTimer = null;
+    }
+
+    // Remove attached handlers
+    if (_scanErrorHandlers.proceed && scanErrorProceedBtn) scanErrorProceedBtn.removeEventListener('click', _scanErrorHandlers.proceed);
+    if (_scanErrorHandlers.main && scanErrorMainBtn) scanErrorMainBtn.removeEventListener('click', _scanErrorHandlers.main);
+    if (_scanErrorHandlers.close && scanErrorCloseFooter) scanErrorCloseFooter.removeEventListener('click', _scanErrorHandlers.close);
+    if (_scanErrorHandlers.refresh && scanErrorRefreshBtn) scanErrorRefreshBtn.removeEventListener('click', _scanErrorHandlers.refresh);
+
+    _scanErrorHandlers.proceed = null;
+    _scanErrorHandlers.main = null;
+    _scanErrorHandlers.close = null;
+    _scanErrorHandlers.refresh = null;
+
+    // NOTE: do NOT resolve the pending promise here. The Promise is resolved
+    // explicitly by the user's action handlers (proceed/main/close) to avoid
+    // race conditions where cleanup would prematurely resolve it to 'close'.
+}
+
+/**
+ * Show the scan error modal with a descriptive message and abort any running scan.
+ * When called with { flagged: true } returns a Promise that resolves with the
+ * user's choice: 'proceed'|'main'|'close'. For normal errors it behaves
+ * non-blocking and returns undefined.
+ * @param {string} message
+ * @param {{flagged?: boolean, countdownSeconds?: number}} [options]
+ * @returns {Promise<string|void>|void}
+ */
+function showScanErrorModal(message, options = {}) {
+    // Only abort an in-progress scan for non-flagged (fatal) errors. For
+    // flagged results we *pause* the flow and let the user decide to proceed.
+    if (!options || !options.flagged) {
+        try { abortScan(); } catch (e) {}
+    }
+
     if (scanErrorBody && typeof message === 'string') scanErrorBody.textContent = message;
     if (!scanErrorModal) return;
+
+    // Reset UI state
+    scanErrorProceedBtn?.setAttribute('hidden', true);
+    if (scanErrorProceedBtn) scanErrorProceedBtn.disabled = true;
+    scanErrorMainBtn?.setAttribute('hidden', true);
+    scanErrorRefreshBtn?.removeAttribute('hidden');
+    scanErrorCloseFooter?.removeAttribute('hidden');
+
+    // Hide the retry/help hint when this is a flagged/malicious stop
+    if (scanErrorHelp) scanErrorHelp.hidden = !!(options && options.flagged);
+    if (scanErrorFlaggedHelp) scanErrorFlaggedHelp.hidden = !(options && options.flagged);
+
+    // Show modal
     scanErrorModal.hidden = false;
     enableModalKeyboardHandling(scanErrorModal, hideScanErrorModal, modalKeyboardHandlers, 'scanError');
+
+    // If this is a flagged result, switch to flagged-mode UI and return a Promise
+    if (options && options.flagged) {
+        // Hide refresh button in flagged mode
+        if (scanErrorRefreshBtn) scanErrorRefreshBtn.hidden = true;
+
+        // Show proceed & main-page buttons
+        if (scanErrorProceedBtn) scanErrorProceedBtn.hidden = false;
+        if (scanErrorMainBtn) scanErrorMainBtn.hidden = false;
+
+        // Start disabled countdown on Proceed button
+        const countdownSeconds = Number.isInteger(options.countdownSeconds) ? options.countdownSeconds : 5;
+        let remaining = countdownSeconds;
+        if (scanErrorProceedBtn) {
+            scanErrorProceedBtn.disabled = true;
+            scanErrorProceedBtn.textContent = `Proceed (${remaining})`;
+        }
+
+        // Focus on the modal so assistive tech sees the change
+        scanErrorProceedBtn?.setAttribute('aria-disabled', 'true');
+
+        // Return a promise that resolves with the user's action
+        return new Promise((resolve) => {
+            _scanErrorResolve = resolve;
+
+            _scanErrorCountdownTimer = setInterval(() => {
+                remaining -= 1;
+                if (remaining > 0) {
+                    if (scanErrorProceedBtn) scanErrorProceedBtn.textContent = `Proceed (${remaining})`;
+                } else {
+                    clearInterval(_scanErrorCountdownTimer);
+                    _scanErrorCountdownTimer = null;
+                    if (scanErrorProceedBtn) {
+                        scanErrorProceedBtn.textContent = 'Proceed';
+                        scanErrorProceedBtn.disabled = false;
+                        scanErrorProceedBtn.removeAttribute('aria-disabled');
+                        scanErrorProceedBtn.focus();
+                    }
+                }
+            }, 1000);
+
+            // Handlers
+            const onProceed = () => {
+                // Resolve with 'proceed' so the awaiting pipeline continues.
+                if (_scanErrorResolve) {
+                    try { _scanErrorResolve('proceed'); } catch (e) { /* ignore */ }
+                    _scanErrorResolve = null;
+                }
+                _cleanupScanErrorModalState();
+                hideScanErrorModal();
+                resolve('proceed');
+            };
+            const onMain = () => {
+                if (_scanErrorResolve) {
+                    try { _scanErrorResolve('main'); } catch (e) { /* ignore */ }
+                    _scanErrorResolve = null;
+                }
+                _cleanupScanErrorModalState();
+                hideScanErrorModal();
+                resolve('main');
+            };
+            const onClose = () => {
+                if (_scanErrorResolve) {
+                    try { _scanErrorResolve('close'); } catch (e) { /* ignore */ }
+                    _scanErrorResolve = null;
+                }
+                _cleanupScanErrorModalState();
+                hideScanErrorModal();
+                resolve('close');
+            };
+
+            // Wire handlers
+            if (scanErrorProceedBtn) scanErrorProceedBtn.addEventListener('click', onProceed);
+            if (scanErrorMainBtn) scanErrorMainBtn.addEventListener('click', onMain);
+            if (scanErrorCloseFooter) scanErrorCloseFooter.addEventListener('click', onClose);
+
+            _scanErrorHandlers.proceed = onProceed;
+            _scanErrorHandlers.main = onMain;
+            _scanErrorHandlers.close = onClose;
+        });
+    }
+
+    // Non-flagged default behavior: keep Close + Refresh Page visible
+    // Hook refresh button to reload page (existing behavior)
+    const onRefresh = () => { window.location.reload(); };
+    if (scanErrorRefreshBtn) scanErrorRefreshBtn.addEventListener('click', onRefresh);
+    _scanErrorHandlers.refresh = onRefresh;
+
     scanErrorRefreshBtn?.focus();
 }
 
 function hideScanErrorModal() {
     if (!scanErrorModal) return;
+
+    // Ensure timers/handlers cleaned up
+    _cleanupScanErrorModalState();
+
     scanErrorModal.hidden = true;
     disableModalKeyboardHandling(modalKeyboardHandlers, 'scanError');
 }
@@ -871,7 +1052,16 @@ function createStepCard(title, processId = null, showLogs = true) {
     const badgeArea = document.createElement('span');
     badgeArea.className = 'scan-step-badge-area';
 
-    header.append(iconWrap, titleEl, badgeArea);
+    // Retry button (hidden by default, shown when step status === 'error')
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'btn btn-ghost btn-xs scan-step-retry';
+    retryBtn.title = 'Retry this step';
+    retryBtn.setAttribute('aria-label', 'Retry this step');
+    retryBtn.textContent = 'Retry';
+    retryBtn.hidden = true;
+
+    header.append(iconWrap, titleEl, badgeArea, retryBtn);
 
     // Status strip for live updates
     const statusStrip = document.createElement('div');
@@ -923,8 +1113,20 @@ function createStepCard(title, processId = null, showLogs = true) {
         });
     }
 
-    return { card, header, body, iconWrap, titleEl, badgeArea, statusStrip, logContainer, logDrawer };
+    // Build the step object (include retry button reference)
+    const step = { card, header, body, iconWrap, titleEl, badgeArea, statusStrip, logContainer, logDrawer, retryBtn };
+
+    // Retry button handler — delegates to retryStep which will inspect step.meta
+    retryBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        retryStep(step).catch(err => {
+            console.error('[NFT-Scanner] Retry failed', { timestamp: new Date().toISOString(), step: step.titleEl.textContent, error: err });
+        });
+    });
+
+    return step;
 }
+
 
 /**
  * Creates and appends a log drawer to an existing step card (used when logs
@@ -974,19 +1176,183 @@ function appendLogEntry(container, entry) {
     
     const timestamp = document.createElement('span');
     timestamp.className = 'log-timestamp';
-    timestamp.textContent = new Date(entry.timestamp).toLocaleTimeString();
+    // Always display timestamps in UTC with seconds and AM/PM to match log UX requirements
+    timestamp.textContent = new Date(entry.timestamp)
+        .toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' }) + ' UTC';
     
     const message = document.createElement('span');
     message.className = 'log-message';
-    message.textContent = entry.message;
+    // If the message is JSON, parse it and include it in the meta block
+    let parsedMessage = null;
+    try {
+        if (typeof entry.message === 'string' && (entry.message.trim().startsWith('{') || entry.message.trim().startsWith('['))) {
+            parsedMessage = JSON.parse(entry.message);
+        }
+    } catch (e) {
+        parsedMessage = null;
+    }
+
+    // Human-friendly conversions for timing phrases (e.g. "Waiting 5000ms")
+    let displayMessage = parsedMessage ? (parsedMessage.message || '[JSON payload]') : entry.message;
+    // Convert explicit "Waiting 5000ms" -> "Wait 5 seconds"
+    displayMessage = displayMessage.replace(/\bWaiting\s+(\d+)ms\b/i, (_, ms) => {
+        const s = Number(ms) / 1000;
+        return `Wait ${s} second${s === 1 ? '' : 's'}`;
+    });
+    // Fallback: convert remaining bare "1234ms" tokens to "1.23s"
+    displayMessage = displayMessage.replace(/(\d+)ms/g, (m, ms) => `${(Number(ms) / 1000).toFixed(2)}s`);
+
+    message.textContent = displayMessage;
     
     logEntry.append(timestamp, message);
     
-    if (entry.meta && Object.keys(entry.meta).length > 0) {
-        const meta = document.createElement('pre');
-        meta.className = 'log-meta';
-        meta.textContent = JSON.stringify(entry.meta, null, 2);
-        logEntry.appendChild(meta);
+    // Combine parsed message JSON and meta into a single display object if present
+    const combinedMeta = {};
+    if (parsedMessage) combinedMeta.payload = parsedMessage;
+    if (entry.meta && Object.keys(entry.meta).length > 0) combinedMeta.meta = entry.meta;
+
+    // Helper: convert ms-like numeric fields to seconds (human readable)
+    function convertMsValues(obj) {
+        if (obj === null || obj === undefined) return obj;
+        if (Array.isArray(obj)) return obj.map(convertMsValues);
+        if (typeof obj === 'object') {
+            const out = {};
+            for (const [k, v] of Object.entries(obj)) {
+                out[k] = convertMsValues(v);
+            }
+            return out;
+        }
+        // Strings like '1500ms' or '1500 ms'
+        if (typeof obj === 'string') {
+            const m = obj.match(/^(\\s*)(\\d+)(\\s*)ms$/i);
+            if (m) {
+                const num = Number(m[2]);
+                return `${(num / 1000).toFixed(2)}s`;
+            }
+            return obj;
+        }
+        // Numbers that look like milliseconds (heuristic)
+        if (typeof obj === 'number') {
+            // If value >= 1000 and key name likely a time value, convert.
+            // Heuristic used by caller by passing likely fields; here just convert large numbers.
+            if (obj >= 1000 && obj < 86400000) {
+                return `${(obj / 1000).toFixed(2)}s`;
+            }
+            return obj;
+        }
+        return obj;
+    }
+
+    if (Object.keys(combinedMeta).length > 0) {
+        try {
+                const converted = convertMsValues(combinedMeta);
+                // Prefer human-friendly display for known shapes
+                const payloadMeta = converted.payload?.meta || converted.meta || converted.payload || null;
+
+                function isPlainObject(v) {
+                    return v && typeof v === 'object' && !Array.isArray(v);
+                }
+
+                if (isPlainObject(payloadMeta)) {
+                    const keys = Object.keys(payloadMeta);
+                    if (keys.length > 0) {
+                        // Compose a single-line message that includes selected meta values
+                        // e.g. "Starting analysis polling | Analysis Id: ... | Max Polls: 6"
+                        const base = String(displayMessage || '');
+                        const inlineParts = [];
+                        const waitParts = [];
+
+                        for (const k of keys) {
+                            const val = payloadMeta[k];
+                            const prettyKey = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+
+                            // Treat interval-like numeric values as "Wait X seconds"
+                            if (/interval|pollInterval|timeout/i.test(k) && (typeof val === 'number' || /^\d+$/.test(String(val)))) {
+                                const seconds = (Number(String(val).replace(/\D/g, '')) / 1000);
+                                waitParts.push(`Wait ${Number.isInteger(seconds) ? seconds : seconds.toFixed(2)} second${seconds === 1 ? '' : 's'}`);
+                                continue;
+                            }
+
+                            // Primitive/simple values -> inline key: value
+                            if (val === null || typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+                                inlineParts.push(`${prettyKey}: ${String(val)}`);
+                                continue;
+                            }
+
+                            // Small arrays / small plain objects -> stringify inline
+                            if (Array.isArray(val) || (typeof val === 'object' && Object.keys(val).length <= 3)) {
+                                inlineParts.push(`${prettyKey}: ${JSON.stringify(val)}`);
+                                continue;
+                            }
+
+                            // Complex/large value -> attach collapsible JSON block below
+                            const jsonText = JSON.stringify(val, null, 2);
+                            const details = document.createElement('details');
+                            details.className = 'log-meta-details';
+                            const summary = document.createElement('summary');
+                            summary.className = 'log-meta-summary';
+                            summary.textContent = `${prettyKey} (details)`;
+                            const pre = document.createElement('pre');
+                            pre.className = 'log-meta';
+                            pre.textContent = jsonText;
+                            details.append(summary, pre);
+                            logEntry.appendChild(details);
+                        }
+
+                        // Build final inline text
+                        let finalText = base;
+                        if (inlineParts.length) finalText += (finalText ? ' | ' : '') + inlineParts.join(' | ');
+                        if (waitParts.length) {
+                            // append waitParts as sentence(s) after a period
+                            finalText += (finalText.endsWith('.') ? ' ' : '. ') + waitParts.join(' ');
+                        }
+
+                        // Avoid duplicating 'Wait' if already present in base
+                        if (!/\bWait\s+\d+/i.test(base)) {
+                            message.textContent = finalText;
+                        }
+                    } else {
+                        // Fallback: keep collapsible JSON
+                        const jsonText = JSON.stringify(payloadMeta, null, 2);
+                        const details = document.createElement('details');
+                        details.className = 'log-meta-details';
+                        const summary = document.createElement('summary');
+                        summary.className = 'log-meta-summary';
+                        summary.textContent = 'Show details';
+                        const pre = document.createElement('pre');
+                        pre.className = 'log-meta';
+                        pre.textContent = jsonText;
+                        details.append(summary, pre);
+                        logEntry.appendChild(details);
+                    }
+                } else {
+                    // Fallback: show converted combinedMeta as JSON (collapsible if large)
+                    const jsonText = JSON.stringify(converted, null, 2);
+                    const isLarge = jsonText.length > 400 || jsonText.split('\n').length > 12;
+                    if (isLarge) {
+                        const details = document.createElement('details');
+                        details.className = 'log-meta-details';
+                        const summary = document.createElement('summary');
+                        summary.className = 'log-meta-summary';
+                        summary.textContent = 'Show details';
+                        const pre = document.createElement('pre');
+                        pre.className = 'log-meta';
+                        pre.textContent = jsonText;
+                        details.append(summary, pre);
+                        logEntry.appendChild(details);
+                    } else {
+                        const pre = document.createElement('pre');
+                        pre.className = 'log-meta';
+                        pre.textContent = jsonText;
+                        logEntry.appendChild(pre);
+                    }
+                }
+        } catch (e) {
+            const meta = document.createElement('pre');
+            meta.className = 'log-meta';
+            meta.textContent = String(combinedMeta);
+            logEntry.appendChild(meta);
+        }
     }
     
     container.appendChild(logEntry);
@@ -1013,7 +1379,21 @@ function updateStatusStrip(strip, status) {
 function setStepStatus(step, status) {
     step.card.setAttribute('data-status', status);
     step.iconWrap.innerHTML = STEP_ICONS[status] || STEP_ICONS.pending;
+
+    // Show Retry control only for steps in `error` state and if the step supports retry
+    try {
+        if (step.retryBtn) {
+            const supported = step.meta && ['url-scan', 'media-url-scan', 'media-file-scan'].includes(step.meta.type);
+            const retryable = step.meta ? (step.meta.retryable !== false) : false;
+            step.retryBtn.hidden = !(status === 'error' && supported && retryable);
+            // ensure button is enabled when visible
+            if (!step.retryBtn.hidden) step.retryBtn.disabled = false;
+        }
+    } catch (e) {
+        // Non-fatal if step object shape differs
+    }
 }
+
 
 /**
  * Adds a small badge next to the step title.
@@ -1038,35 +1418,65 @@ function addStepBadge(step, text, className) {
  * @param {string[]} headers - Column header texts
  * @returns {{ wrapper: HTMLDivElement, table: HTMLTableElement, tbody: HTMLTableSectionElement }}
  */
-function createScanTable(headers) {
+function createScanTable(headers, options = {}) {
+    const vertical = !!options.vertical;
     const wrapper = document.createElement('div');
-    wrapper.className = 'table-wrapper';
+    wrapper.className = vertical ? 'metadata-table-wrapper' : 'table-wrapper';
 
     const table = document.createElement('table');
-    table.className = 'scan-table';
+    table.className = vertical ? 'metadata-table' : 'scan-table';
 
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    headers.forEach((h) => {
+    let tbody = document.createElement('tbody');
+
+    if (!vertical) {
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headers.forEach((h) => {
+            const th = document.createElement('th');
+            th.textContent = h;
+            // Resize handle
+            const handle = document.createElement('div');
+            handle.className = 'col-resize-handle';
+            th.appendChild(handle);
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        wrapper.appendChild(table);
+
+        // Enable column resizing for horizontal tables
+        enableColumnResize(table);
+    } else {
+        // Vertical metadata-style table: no thead, tbody will contain rows of label/value
+        table.appendChild(tbody);
+        wrapper.appendChild(table);
+    }
+
+    return { wrapper, table, tbody, vertical };
+}
+
+/**
+ * Populate a vertical metadata-style tbody with label/value pairs.
+ * `values` may contain strings or HTMLElements to append into the value cell.
+ * @param {HTMLTableSectionElement} tbody
+ * @param {string[]} labels
+ * @param {(string|HTMLElement)[]} values
+ */
+function populateVerticalRow(tbody, labels, values) {
+    // Remove any previous rows for this item (we'll append a fresh set)
+    // Note: caller should remove placeholders if present
+    for (let i = 0; i < labels.length; i++) {
+        const tr = document.createElement('tr');
         const th = document.createElement('th');
-        th.textContent = h;
-        // Resize handle
-        const handle = document.createElement('div');
-        handle.className = 'col-resize-handle';
-        th.appendChild(handle);
-        headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    table.appendChild(tbody);
-    wrapper.appendChild(table);
-
-    // Enable column resizing
-    enableColumnResize(table);
-
-    return { wrapper, table, tbody };
+        th.textContent = labels[i];
+        const td = document.createElement('td');
+        const v = values[i];
+        if (v instanceof HTMLElement) td.appendChild(v);
+        else td.textContent = v == null ? '-' : String(v);
+        tr.append(th, td);
+        tbody.appendChild(tr);
+    }
 }
 
 /**
@@ -1131,6 +1541,231 @@ function createMagnifyButton(analysisData) {
     return btn;
 }
 
+/**
+ * Retry a previously failed step. Uses step.meta (set by the pipeline) to
+ * determine how to re-run the specific operation (URL scan, media URL scan,
+ * or file scan). Updates the step card in-place and preserves accessibility.
+ * @param {Object} step
+ */
+async function retryStep(step) {
+    if (!step) return;
+    if (!step.meta) {
+        step.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-error">Retry not available for this step.</p>');
+        return;
+    }
+
+    // Do not allow retry if marked non-retryable (e.g. flagged/unsafe result)
+    if (step.meta.retryable === false) {
+        step.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-error">This step cannot be retried because it was stopped due to a flagged/unsafe result.</p>');
+        return;
+    }
+
+    // Prevent concurrent retries
+    if (step._retrying) return;
+    step._retrying = true;
+
+    const btn = step.retryBtn;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Retrying...';
+    }
+
+    logInfo('Retrying step', { step: step.titleEl.textContent, meta: step.meta });
+
+    try {
+        // Set visual state to active while we retry
+        setStepStatus(step, 'active');
+
+        // Find the table tbody if present and replace with a placeholder
+        const table = step.body.querySelector('table');
+        let tbody = table ? table.querySelector('tbody') : null;
+        if (tbody) {
+            tbody.innerHTML = '';
+            const ph = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 2;
+            td.textContent = 'Retrying...';
+            ph.appendChild(td);
+            tbody.appendChild(ph);
+        } else {
+            // Non-table steps: show a simple message
+            step.body.innerHTML = '<p class="step-msg">Retrying…</p>';
+        }
+
+        // Dispatch by step type
+        const type = step.meta.type;
+
+        if (type === 'url-scan' || type === 'media-url-scan') {
+            const url = step.meta.url;
+            const res = await scanURL(url, vtApiKey, null, { processId: step.meta.processId || null });
+
+            // Rebuild vertical rows (headers provided in meta)
+            if (tbody) {
+                tbody.innerHTML = '';
+                const headers = step.meta.headers || ['Status', 'Scanned URL', 'RESULTS'];
+                const info = getStatusInfo(res);
+                const statusEl = document.createElement('span');
+                statusEl.className = `status-badge ${info.cls}`;
+                statusEl.textContent = info.text;
+
+                const urlEl = document.createElement('span');
+                urlEl.className = 'cell-url';
+                urlEl.textContent = url;
+                urlEl.title = url;
+
+                const sumEl = document.createElement('div');
+                sumEl.innerHTML = res.scanned ? formatVtSummary(res) : (res.error || '-');
+                if (res.rawAnalysis) {
+                    const mbtn = createMagnifyButton(res.rawAnalysis);
+                    mbtn.classList.add('vt-inline-btn');
+                    const vtWrap = document.createElement('span');
+                    vtWrap.className = 'vt-details';
+                    vtWrap.appendChild(document.createTextNode(' '));
+                    vtWrap.appendChild(mbtn);
+                    const vtLabelEl = document.createElement('span');
+                    vtLabelEl.className = 'vt-label';
+                    vtLabelEl.textContent = 'DETAIL';
+                    vtWrap.appendChild(vtLabelEl);
+                    sumEl.appendChild(vtWrap);
+                }
+
+                populateVerticalRow(tbody, headers, [statusEl, urlEl, sumEl]);
+            }
+
+            // Update status and handle flagged results like original pipeline
+            if (res.scanned !== true) {
+                setStepStatus(step, 'error');
+                step.body.insertAdjacentHTML('beforeend', `<p class="step-msg step-msg-error">${escapeHtml(res.error || 'Scan failed to complete')}</p>`);
+            } else if (res.safe === false) {
+                step.meta = step.meta || {};
+                step.meta.retryable = false;
+                setStepStatus(step, 'error');
+                const userChoice = await showScanErrorModal('The resource was flagged as potentially unsafe.', { flagged: true });
+                if (userChoice === 'proceed') {
+                    setStepStatus(step, 'warning');
+                    step.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-warning">Proceed selected — continuing despite flagged result.</p>');
+                } else if (userChoice === 'main') {
+                    navigateToHome();
+                    return;
+                } else {
+                    // close/abort — leave as error
+                }
+            } else {
+                setStepStatus(step, 'success');
+            }
+
+            return;
+        }
+
+        if (type === 'media-file-scan') {
+            // Ensure we have a blob to upload — re-fetch if necessary
+            let blob = step.meta.blob;
+            if (!blob && step.meta.url) {
+                const fetchRes = await fetchMedia(step.meta.url, null);
+                if (!fetchRes.success) {
+                    setStepStatus(step, 'error');
+                    step.body.insertAdjacentHTML('beforeend', `<p class="step-msg step-msg-error">${escapeHtml(fetchRes.error || 'Failed to fetch media')}</p>`);
+                    return;
+                }
+                blob = fetchRes.blob;
+                // Preserve preview metadata for UI
+                step.meta.blob = blob;
+                step.meta.mimeType = fetchRes.mimeType;
+                step.meta.size = fetchRes.size;
+                step.meta.objectUrl = fetchRes.objectUrl;
+            }
+
+            const fileRes = await scanFile(blob, step.meta.filename || 'file', vtApiKey, null, { processId: step.meta.processId || null });
+
+            if (tbody) {
+                tbody.innerHTML = '';
+                const headers = step.meta.headers || ['Status', 'Type', 'Size', 'Media Preview', 'VirusTotal Results'];
+
+                const fInfo = getStatusInfo(fileRes);
+                const fStatusEl = document.createElement('span');
+                fStatusEl.className = `status-badge ${fInfo.cls}`;
+                fStatusEl.textContent = fInfo.text;
+
+                const typeEl = document.createElement('span');
+                typeEl.textContent = step.meta.mimeType || '-';
+
+                const sizeEl = document.createElement('span');
+                sizeEl.textContent = step.meta.size ? formatBytes(step.meta.size) : '-';
+
+                const prevEl = document.createElement('div');
+                prevEl.className = 'cell-media';
+                if (step.meta.objectUrl) {
+                    const thumb = document.createElement('img');
+                    thumb.src = step.meta.objectUrl;
+                    thumb.alt = 'Media preview';
+                    thumb.className = 'media-thumb';
+                    thumb.addEventListener('click', () => showMediaPreviewModal(step.meta.objectUrl, 'NFT Media'));
+                    prevEl.appendChild(thumb);
+                } else {
+                    prevEl.textContent = '-';
+                }
+
+                const fSumEl = document.createElement('div');
+                fSumEl.innerHTML = fileRes.scanned ? formatVtSummary(fileRes) : (fileRes.error || '-');
+                if (fileRes.rawAnalysis) {
+                    const btn = createMagnifyButton(fileRes.rawAnalysis);
+                    btn.classList.add('vt-inline-btn');
+                    const vtWrap = document.createElement('span');
+                    vtWrap.className = 'vt-details';
+                    vtWrap.appendChild(document.createTextNode(' '));
+                    vtWrap.appendChild(btn);
+                    const vtLabel = document.createElement('span');
+                    vtLabel.className = 'vt-label';
+                    vtLabel.textContent = 'DETAIL';
+                    vtWrap.appendChild(vtLabel);
+                    fSumEl.appendChild(vtWrap);
+                }
+
+                populateVerticalRow(tbody, headers, [fStatusEl, typeEl, sizeEl, prevEl, fSumEl]);
+            }
+
+            if (fileRes.scanned !== true) {
+                setStepStatus(step, 'error');
+                step.body.insertAdjacentHTML('beforeend', `<p class="step-msg step-msg-error">${escapeHtml(fileRes.error || 'File scan failed')}</p>`);
+            } else if (fileRes.safe === false) {
+                step.meta = step.meta || {};
+                step.meta.retryable = false;
+                setStepStatus(step, 'error');
+                const fileChoice = await showScanErrorModal('A media file was flagged as potentially unsafe. The scan has been stopped.', { flagged: true });
+                if (fileChoice === 'proceed') {
+                    setStepStatus(step, 'warning');
+                    step.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-warning">Proceed selected — continuing despite flagged result.</p>');
+                } else if (fileChoice === 'main') {
+                    navigateToHome();
+                    return;
+                } else {
+                    return;
+                }
+            } else {
+                setStepStatus(step, fileRes.scanned ? 'success' : 'warning');
+            }
+
+            return;
+        }
+
+        // Unsupported retry type
+        step.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-error">Retry not supported for this step.</p>');
+        setStepStatus(step, 'error');
+
+    } catch (err) {
+        setStepStatus(step, 'error');
+        step.body.insertAdjacentHTML('beforeend', `<p class="step-msg step-msg-error">${escapeHtml(err.message || String(err))}</p>`);
+        logError('Retry failed', { step: step.titleEl.textContent, error: err });
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+        step._retrying = false;
+    }
+}
+
+
 /* ------------------------------------------------------------------ */
 /*  Formatting Helpers                                                 */
 /* ------------------------------------------------------------------ */
@@ -1144,10 +1779,10 @@ function formatVtSummary(result) {
     if (!result || !result.stats) return '-';
     const { harmless = 0, malicious = 0, suspicious = 0, undetected = 0 } = result.stats;
     const parts = [];
-    if (malicious > 0) parts.push(`<span class="vt-malicious">${malicious} malicious</span>`);
-    if (suspicious > 0) parts.push(`<span class="vt-suspicious">${suspicious} suspicious</span>`);
-    parts.push(`<span class="vt-clean">${harmless} clean</span>`);
-    parts.push(`<span class="vt-undetected">${undetected} undetected</span>`);
+    if (malicious > 0) parts.push(`<span class="vt-malicious"><span class="vt-count">${malicious}</span><span class="vt-label">Malicious</span></span>`);
+    if (suspicious > 0) parts.push(`<span class="vt-suspicious"><span class="vt-count">${suspicious}</span><span class="vt-label">Suspicious</span></span>`);
+    parts.push(`<span class="vt-clean"><span class="vt-count">${harmless}</span><span class="vt-label">Clean</span></span>`);
+    parts.push(`<span class="vt-undetected"><span class="vt-count">${undetected}</span><span class="vt-label">Undetected</span></span>`);
     // No separator — parts render as separate block lines via CSS
     return parts.join('');
 }
@@ -1298,6 +1933,101 @@ function renderVtAnalysisTable(container, data) {
         return;
     }
 
+    /* Helper: apply category/result filters to tbody rows. Returns visible count.
+       - categoryFilter: exact-match filter against the Category column
+       - resultQuery: substring search across the entire row (Engine, Category, Result)
+    */
+    function applyVtFilters(tbody, categoryFilter = '', resultQuery = '') {
+        const cat = String(categoryFilter || '').toLowerCase();
+        const q = String(resultQuery || '').trim().toLowerCase();
+        let visible = 0;
+        tbody.querySelectorAll('tr').forEach((tr) => {
+            const rowCat = String(tr.dataset.vtCategory || '').toLowerCase();
+
+            // If the user supplied a category, require exact match; otherwise allow all
+            const matchesCat = !cat || rowCat === cat;
+
+            // For the free-text filter we match against the full row text so the
+            // single filter input searches Engine, Category and Result columns.
+            const rowText = (tr.textContent || '').toLowerCase();
+            const matchesQuery = !q || rowText.includes(q);
+
+            tr.hidden = !(matchesCat && matchesQuery);
+            if (!tr.hidden) visible += 1;
+        });
+        return visible;
+    }
+
+    /* Helper: stable-ish sort of tbody rows by column index (0-based). */
+    function sortTbodyRows(tbody, colIndex, asc = true) {
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        rows.sort((a, b) => {
+            const aText = String(a.children[colIndex]?.textContent || '').trim();
+            const bText = String(b.children[colIndex]?.textContent || '').trim();
+            return asc ? collator.compare(aText, bText) : collator.compare(bText, aText);
+        });
+        rows.forEach((r) => tbody.appendChild(r));
+    }
+
+    /* Helper: create filter toolbar (Category select + Result text input + Clear). */
+    function createVtFilterToolbar(containerEl, tbody, categories) {
+        const toolbar = document.createElement('div');
+        toolbar.className = 'vt-filter-toolbar';
+
+        // Category filter (select)
+        const catWrap = document.createElement('div');
+        catWrap.className = 'filter-control';
+        const catLabel = document.createElement('label');
+        catLabel.htmlFor = 'vt-cat-filter';
+        catLabel.className = 'sr-only';
+        catLabel.textContent = 'Filter by Category';
+        const catSelect = document.createElement('select');
+        catSelect.id = 'vt-cat-filter';
+        catSelect.className = 'filter-select';
+        const optAll = document.createElement('option'); optAll.value = ''; optAll.textContent = 'All';
+        catSelect.appendChild(optAll);
+        categories.sort().forEach((c) => {
+            const o = document.createElement('option'); o.value = c; o.textContent = c; catSelect.appendChild(o);
+        });
+        catWrap.append(catLabel, catSelect);
+        toolbar.appendChild(catWrap);
+
+        // Result filter (text input)
+        const resWrap = document.createElement('div');
+        resWrap.className = 'filter-control';
+        const resLabel = document.createElement('label');
+        resLabel.htmlFor = 'vt-result-filter';
+        resLabel.className = 'sr-only';
+        resLabel.textContent = 'Filter rows';
+        const resInput = document.createElement('input');
+        resInput.id = 'vt-result-filter';
+        resInput.className = 'filter-input';
+        resInput.type = 'search';
+        resInput.placeholder = 'Filter';
+        resWrap.append(resLabel, resInput);
+        toolbar.appendChild(resWrap);
+
+        // Clear button
+        const btnWrap = document.createElement('div');
+        btnWrap.className = 'filter-control';
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'btn btn-ghost btn-sm';
+        clearBtn.textContent = 'Clear';
+        btnWrap.appendChild(clearBtn);
+        toolbar.appendChild(btnWrap);
+
+        // Wire events
+        const update = () => applyVtFilters(tbody, catSelect.value, resInput.value);
+        catSelect.addEventListener('change', update);
+        resInput.addEventListener('input', update);
+        clearBtn.addEventListener('click', () => { catSelect.value = ''; resInput.value = ''; update(); });
+
+        containerEl.appendChild(toolbar);
+        return { catSelect, resInput, toolbar };
+    }
+
     // Summary info table
     const infoWrapper = document.createElement('div');
     infoWrapper.className = 'metadata-table-wrapper';
@@ -1341,18 +2071,69 @@ function renderVtAnalysisTable(container, data) {
         container.appendChild(heading);
 
         const { wrapper, tbody } = createScanTable(['Engine', 'Category', 'Result']);
+
+        // collect unique categories for the filter select
+        const categoriesSet = new Set();
+
         for (const [engine, info] of Object.entries(results)) {
             const tr = document.createElement('tr');
             const engTd = document.createElement('td');
             engTd.textContent = engine;
+
+            const categoryValue = String(info?.category ?? '-');
             const catTd = document.createElement('td');
-            catTd.textContent = info?.category ?? '-';
+            catTd.textContent = categoryValue;
+
+            const resultText = String(info?.result ?? '');
+
+            // Determine VT visual class: prefer category (canonical), fallback to result text
+            let vtClass = 'vt-undetected';
+            const catLower = categoryValue.toLowerCase();
+            if (catLower === 'malicious') vtClass = 'vt-malicious';
+            else if (catLower === 'suspicious') vtClass = 'vt-suspicious';
+            else if (catLower === 'harmless') vtClass = 'vt-clean';
+            else if (catLower === 'undetected') vtClass = 'vt-undetected';
+            else {
+                const rt = resultText.toLowerCase();
+                if (rt === 'clean' || rt === 'harmless') vtClass = 'vt-clean';
+                else if (rt === 'malicious') vtClass = 'vt-malicious';
+                else if (rt === 'suspicious') vtClass = 'vt-suspicious';
+                else if (rt === 'undetected') vtClass = 'vt-undetected';
+            }
+
             const resTd = document.createElement('td');
-            const result = info?.result ?? 'clean';
-            resTd.innerHTML = `<span class="vt-${result.toLowerCase()}">${result}</span>`;
+            resTd.innerHTML = `<span class="${vtClass}">${escapeHtml(resultText || categoryValue || '-')}</span>`;
+
+            // expose data attributes for filtering + searching
+            tr.dataset.vtCategory = categoryValue;
+            tr.dataset.vtResult = (resultText || '').toLowerCase();
+
             tr.append(engTd, catTd, resTd);
             tbody.appendChild(tr);
+
+            categoriesSet.add(categoryValue);
         }
+
+        // Add filter toolbar above the table
+        createVtFilterToolbar(container, tbody, Array.from(categoriesSet).filter(Boolean));
+
+        // Enable sortable headers for Category and Result (columns 1 and 2)
+        const tableEl = wrapper.querySelector('table');
+        const ths = Array.from(tableEl.querySelectorAll('th'));
+        [1, 2].forEach((colIndex) => {
+            const th = ths[colIndex];
+            th.classList.add('sortable');
+            th.addEventListener('click', () => {
+                const current = th.dataset.sortDir === 'asc' ? 'asc' : (th.dataset.sortDir === 'desc' ? 'desc' : null);
+                const newDir = current === 'asc' ? 'desc' : 'asc';
+                // clear other headers
+                ths.forEach((h) => { h.classList.remove('sort-asc', 'sort-desc'); delete h.dataset.sortDir; });
+                th.classList.add(newDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                th.dataset.sortDir = newDir;
+                sortTbodyRows(tbody, colIndex, newDir === 'asc');
+            });
+        });
+
         container.appendChild(wrapper);
     }
 }
@@ -1399,17 +2180,23 @@ function buildUrlScanRow(url, result) {
     uCell.title = url;
 
     const sumCell = document.createElement('td');
+    // Place the VT "more details" control inline inside the RESULTS cell
     sumCell.innerHTML = result.scanned ? formatVtSummary(result) : (result.error || '-');
-
-    const dCell = document.createElement('td');
-    dCell.className = 'cell-center';
     if (result.rawAnalysis) {
-        dCell.appendChild(createMagnifyButton(result.rawAnalysis));
-    } else {
-        dCell.textContent = '-';
+        const btn = createMagnifyButton(result.rawAnalysis);
+        btn.classList.add('vt-inline-btn');
+        const vtWrap = document.createElement('span');
+        vtWrap.className = 'vt-details';
+        vtWrap.appendChild(document.createTextNode(' '));
+        vtWrap.appendChild(btn);
+        const vtLabel = document.createElement('span');
+        vtLabel.className = 'vt-label';
+        vtLabel.textContent = 'DETAIL';
+        vtWrap.appendChild(vtLabel);
+        sumCell.appendChild(vtWrap);
     }
 
-    row.append(sCell, uCell, sumCell, dCell);
+    row.append(sCell, uCell, sumCell);
     return row;
 }
 
@@ -1437,17 +2224,23 @@ function buildMediaUrlScanRow(mediaObj, result) {
     uCell.title = mediaObj.url;
 
     const sumCell = document.createElement('td');
+    // Move the VT detail control into the RESULTS cell so it's adjacent to the summary
     sumCell.innerHTML = result.scanned ? formatVtSummary(result) : (result.error || '-');
-
-    const dCell = document.createElement('td');
-    dCell.className = 'cell-center';
     if (result.rawAnalysis) {
-        dCell.appendChild(createMagnifyButton(result.rawAnalysis));
-    } else {
-        dCell.textContent = '-';
+        const btn = createMagnifyButton(result.rawAnalysis);
+        btn.classList.add('vt-inline-btn');
+        const vtWrap = document.createElement('span');
+        vtWrap.className = 'vt-details';
+        vtWrap.appendChild(document.createTextNode(' '));
+        vtWrap.appendChild(btn);
+        const vtLabel = document.createElement('span');
+        vtLabel.className = 'vt-label';
+        vtLabel.textContent = 'DETAIL';
+        vtWrap.appendChild(vtLabel);
+        sumCell.appendChild(vtWrap);
     }
 
-    row.append(sCell, fCell, uCell, sumCell, dCell);
+    row.append(sCell, fCell, uCell, sumCell);
     return row;
 }
 
@@ -1471,7 +2264,7 @@ function buildFileScanRow(mediaResult, fileResult) {
     sizeCell.textContent = mediaResult.size ? formatBytes(mediaResult.size) : '-';
 
     const prevCell = document.createElement('td');
-    prevCell.className = 'cell-center';
+    prevCell.className = 'cell-media';
     if (mediaResult.objectUrl) {
         const thumb = document.createElement('img');
         thumb.src = mediaResult.objectUrl;
@@ -1484,17 +2277,23 @@ function buildFileScanRow(mediaResult, fileResult) {
     }
 
     const sumCell = document.createElement('td');
+    // Put details button after the summary inside the RESULTS cell
     sumCell.innerHTML = fileResult.scanned ? formatVtSummary(fileResult) : (fileResult.error || '-');
-
-    const dCell = document.createElement('td');
-    dCell.className = 'cell-center';
     if (fileResult.rawAnalysis) {
-        dCell.appendChild(createMagnifyButton(fileResult.rawAnalysis));
-    } else {
-        dCell.textContent = '-';
+        const btn = createMagnifyButton(fileResult.rawAnalysis);
+        btn.classList.add('vt-inline-btn');
+        const vtWrap = document.createElement('span');
+        vtWrap.className = 'vt-details';
+        vtWrap.appendChild(document.createTextNode(' '));
+        vtWrap.appendChild(btn);
+        const vtLabelEl = document.createElement('span');
+        vtLabelEl.className = 'vt-label';
+        vtLabelEl.textContent = 'DETAIL';
+        vtWrap.appendChild(vtLabelEl);
+        sumCell.appendChild(vtWrap);
     }
 
-    row.append(sCell, typeCell, sizeCell, prevCell, sumCell, dCell);
+    row.append(sCell, typeCell, sizeCell, prevCell, sumCell);
     return row;
 }
 
@@ -1601,16 +2400,55 @@ async function runPipeline(rawUrl, externalSignal = null) {
     /* ---- Step 1: URL Security Scan (VirusTotal) ---- */
     const step1ProcessId = `vt-ui-${Math.random().toString(36).substring(2,10)}`;
     const step1 = createStepCard('URL Security Scan (VirusTotal)', step1ProcessId);
-    const urlHeaders = ['Status', 'Scanned URL', 'RESULTS', 'More Details'];
-    const { wrapper: uWrap, tbody: uTbody } = createScanTable(urlHeaders);
-    const uPlaceholder = createPlaceholderRow(4);
+    // Attach meta so Retry knows how to re-run this step
+    step1.meta = { type: 'url-scan', url: resolvedUrl, headers: ['Status', 'Scanned URL', 'RESULTS'], processId: step1ProcessId };
+    const urlHeaders = step1.meta.headers;
+    const { wrapper: uWrap, tbody: uTbody, vertical: uVertical } = createScanTable(urlHeaders, { vertical: true });
+    // simple placeholder for vertical table
+    const uPlaceholder = document.createElement('tr');
+    const uPhTd = document.createElement('td');
+    uPhTd.colSpan = 2;
+    uPhTd.textContent = '-';
+    uPlaceholder.appendChild(uPhTd);
     uTbody.appendChild(uPlaceholder);
     step1.body.appendChild(uWrap);
 
     const urlScan = await scanURL(resolvedUrl, vtApiKey, externalSignal, { processId: step1ProcessId });
 
-    uTbody.removeChild(uPlaceholder);
-    uTbody.appendChild(buildUrlScanRow(resolvedUrl, urlScan));
+    // remove placeholder rows
+    try { uTbody.removeChild(uPlaceholder); } catch (e) {}
+
+    // Build vertical label/value rows
+    const info = getStatusInfo(urlScan);
+    const statusEl = document.createElement('span');
+    statusEl.className = `status-badge ${info.cls}`;
+    statusEl.textContent = info.text;
+
+    const urlEl = document.createElement('span');
+    urlEl.className = 'cell-url';
+    urlEl.textContent = resolvedUrl;
+    urlEl.title = resolvedUrl;
+
+    const sumEl = document.createElement('div');
+    sumEl.innerHTML = urlScan.scanned ? formatVtSummary(urlScan) : (urlScan.error || '-');
+    if (urlScan.rawAnalysis) {
+        const btn = createMagnifyButton(urlScan.rawAnalysis);
+        btn.classList.add('vt-inline-btn');
+        const vtWrap = document.createElement('span');
+        vtWrap.className = 'vt-details';
+        vtWrap.appendChild(document.createTextNode(' '));
+        vtWrap.appendChild(btn);
+        const vtLabelEl = document.createElement('span');
+        vtLabelEl.className = 'vt-label';
+        vtLabelEl.textContent = 'DETAIL';
+        vtWrap.appendChild(vtLabelEl);
+        sumEl.appendChild(vtWrap);
+    }
+
+    const detailsEl = document.createElement('span');
+    detailsEl.textContent = '-';
+
+    populateVerticalRow(uTbody, urlHeaders, [statusEl, urlEl, sumEl]);
 
     // Fail-fast: stop if scan did not complete successfully
     if (urlScan.scanned !== true) {
@@ -1624,13 +2462,29 @@ async function runPipeline(rawUrl, externalSignal = null) {
     }
 
     if (urlScan.safe === false) {
+        // mark non-retryable because the stop reason is a flagged/unsafe result
+        step1.meta = step1.meta || {};
+        step1.meta.retryable = false;
         setStepStatus(step1, 'error');
         step1.body.insertAdjacentHTML(
             'beforeend',
             '<p class="step-msg step-msg-error">The metadata URL was flagged as potentially unsafe. Scan stopped.</p>'
         );
-        showScanErrorModal('The metadata URL was flagged as potentially unsafe. The scan has been stopped.');
-        return;
+
+        // Offer user choices when resource is flagged (Proceed / Home / Close)
+        const userChoice = await showScanErrorModal('The metadata URL was flagged as potentially unsafe. The scan has been stopped.', { flagged: true });
+        if (userChoice === 'proceed') {
+            // User chose to proceed — update UI to reflect override and continue
+            setStepStatus(step1, 'warning');
+            step1.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-warning">Proceed selected — continuing despite flagged result.</p>');
+            /* continue to next steps */
+        } else if (userChoice === 'main') {
+            navigateToHome();
+            return;
+        } else {
+            // 'close' or timeout/default — stop pipeline
+            return;
+        }
     }
     setStepStatus(step1, urlScan.scanned ? 'success' : 'warning');
 
@@ -1804,19 +2658,78 @@ async function runPipeline(rawUrl, externalSignal = null) {
 
     /* ---- Steps 7+8: Scan media URLs one-by-one, then upload files ---- */
     for (const mediaObj of urlsToScan) {
+        // Validate/normalize the media URL (convert ipfs:// -> HTTP gateway) before scanning
+        const mediaValidation = validateURL(mediaObj.url);
+        const resolvedMediaUrl = mediaValidation.valid ? mediaValidation.resolvedUrl : mediaObj.url;
+
         // 7a: URL Scan for this media
         const mediaProcessId = `vt-ui-${Math.random().toString(36).substring(2,10)}`;
         const mediaStep = createStepCard(`URL Scan: ${mediaObj.field.replace('.url', '')}`, mediaProcessId);
-        const mHeaders = ['Status', 'Field', 'Scanned URL', 'RESULTS', 'More Details'];
-        const { wrapper: mWrap, tbody: mTbody } = createScanTable(mHeaders);
-        const mPlaceholder = createPlaceholderRow(5);
+        // meta for retry (store resolved URL so retry submits the same value VT saw)
+        mediaStep.meta = { type: 'media-url-scan', url: resolvedMediaUrl, originalUrl: mediaObj.url, field: mediaObj.field, headers: ['Status', 'Field', 'Scanned URL', 'RESULTS'], processId: mediaProcessId };
+        const mHeaders = mediaStep.meta.headers;
+        const { wrapper: mWrap, tbody: mTbody, vertical: mVertical } = createScanTable(mHeaders, { vertical: true });
+        const mPlaceholder = document.createElement('tr');
+        const mPhTd = document.createElement('td');
+        mPhTd.colSpan = 2;
+        mPhTd.textContent = '-';
+        mPlaceholder.appendChild(mPhTd);
         mTbody.appendChild(mPlaceholder);
         mediaStep.body.appendChild(mWrap);
 
-        const mResult = await scanURL(mediaObj.url, vtApiKey, externalSignal, { processId: mediaProcessId });
+        // If validation failed, show error and skip this media entry
+        if (!mediaValidation.valid) {
+            try { mTbody.removeChild(mPlaceholder); } catch (e) {}
+            const failRow = document.createElement('tr');
+            const failCell = document.createElement('td');
+            failCell.colSpan = 6;
+            failCell.className = 'step-msg step-msg-error';
+            failCell.textContent = `Invalid media URL: ${mediaValidation.reason}`;
+            failRow.appendChild(failCell);
+            mTbody.appendChild(failRow);
+            setStepStatus(mediaStep, 'error');
+            continue; // move to next media
+        }
 
-        mTbody.removeChild(mPlaceholder);
-        mTbody.appendChild(buildMediaUrlScanRow(mediaObj, mResult));
+        const mResult = await scanURL(resolvedMediaUrl, vtApiKey, externalSignal, { processId: mediaProcessId });
+
+        try { mTbody.removeChild(mPlaceholder); } catch (e) {}
+
+        const mInfo = getStatusInfo(mResult);
+        const mStatusEl = document.createElement('span');
+        mStatusEl.className = `status-badge ${mInfo.cls}`;
+        mStatusEl.textContent = mInfo.text;
+
+        const fEl = document.createElement('span');
+        fEl.className = 'cell-field';
+        fEl.textContent = mediaObj.field;
+        fEl.title = mediaObj.field;
+
+        const mUrlEl = document.createElement('span');
+        mUrlEl.className = 'cell-url';
+        mUrlEl.textContent = resolvedMediaUrl;
+        mUrlEl.title = resolvedMediaUrl;
+
+        const mSumEl = document.createElement('div');
+        mSumEl.innerHTML = mResult.scanned ? formatVtSummary(mResult) : (mResult.error || '-');
+        if (mResult.rawAnalysis) {
+            const btn = createMagnifyButton(mResult.rawAnalysis);
+            btn.classList.add('vt-inline-btn');
+            const vtWrap = document.createElement('span');
+            vtWrap.className = 'vt-details';
+            vtWrap.appendChild(document.createTextNode(' '));
+            vtWrap.appendChild(btn);
+            const vtLabelEl = document.createElement('span');
+            vtLabelEl.className = 'vt-label';
+            vtLabelEl.textContent = 'DETAIL';
+            vtWrap.appendChild(vtLabelEl);
+            mSumEl.appendChild(vtWrap);
+        }
+
+        const mDetailsEl = document.createElement('span');
+        mDetailsEl.textContent = '-';
+
+        populateVerticalRow(mTbody, mHeaders, [mStatusEl, fEl, mUrlEl, mSumEl]);
 
         // Fail-fast: stop if scan did not complete successfully
         if (mResult.scanned !== true) {
@@ -1826,9 +2739,22 @@ async function runPipeline(rawUrl, externalSignal = null) {
         }
 
         if (mResult.safe === false) {
+            // mark non-retryable because the resource was flagged unsafe
+            mediaStep.meta = mediaStep.meta || {};
+            mediaStep.meta.retryable = false;
             setStepStatus(mediaStep, 'error');
-            showScanErrorModal('A media URL was flagged as potentially unsafe. The scan has been stopped.');
-            return;
+            // Prompt user with flagged modal and await decision
+            const mediaChoice = await showScanErrorModal('A media URL was flagged as potentially unsafe. The scan has been stopped.', { flagged: true });
+            if (mediaChoice === 'proceed') {
+                // User chose to proceed — mark warning and continue
+                setStepStatus(mediaStep, 'warning');
+                mediaStep.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-warning">Proceed selected — continuing despite flagged result.</p>');
+            } else if (mediaChoice === 'main') {
+                navigateToHome();
+                return;
+            } else {
+                return;
+            }
         }
         setStepStatus(mediaStep, mResult.scanned ? 'success' : 'warning');
 
@@ -1843,9 +2769,13 @@ async function runPipeline(rawUrl, externalSignal = null) {
         if (mediaObj.type === 'media' && mResult.safe !== false) {
             const fileProcessId = `vt-ui-${Math.random().toString(36).substring(2,10)}`;
             const fileStep = createStepCard(`File Scan: ${mediaObj.field.replace('.url', '')}`, fileProcessId);
-            const fHeaders = ['Status', 'Type', 'Size', 'Media Preview', 'VirusTotal Results', 'More Details'];
-            const { wrapper: fWrap, tbody: fTbody } = createScanTable(fHeaders);
-            const fPlaceholder = createPlaceholderRow(6);
+            const fHeaders = ['Status', 'Type', 'Size', 'Media Preview', 'VirusTotal Results'];
+            const { wrapper: fWrap, tbody: fTbody, vertical: fVertical } = createScanTable(fHeaders, { vertical: true });
+            const fPlaceholder = document.createElement('tr');
+            const fPhTd = document.createElement('td');
+            fPhTd.colSpan = 2;
+            fPhTd.textContent = '-';
+            fPlaceholder.appendChild(fPhTd);
             fTbody.appendChild(fPlaceholder);
             fileStep.body.appendChild(fWrap);
 
@@ -1866,11 +2796,69 @@ async function runPipeline(rawUrl, externalSignal = null) {
                 return;
             }
 
-            // Upload blob to VirusTotal /files endpoint
+            // Preserve metadata for potential Retry, then upload blob to VirusTotal /files endpoint
+            fileStep.meta = {
+                type: 'media-file-scan',
+                url: resolvedMediaUrl,
+                originalUrl: mediaObj.url,
+                field: mediaObj.field,
+                headers: fHeaders,
+                processId: fileProcessId,
+                blob: mediaFetchResult.blob,
+                filename: `media_${mediaObj.field}`,
+                mimeType: mediaFetchResult.mimeType,
+                size: mediaFetchResult.size,
+                objectUrl: mediaFetchResult.objectUrl
+            };
+
             const fileResult = await scanFile(mediaFetchResult.blob, `media_${mediaObj.field}`, vtApiKey, externalSignal, { processId: fileProcessId });
 
-            fTbody.removeChild(fPlaceholder);
-            fTbody.appendChild(buildFileScanRow(mediaFetchResult, fileResult));
+            try { fTbody.removeChild(fPlaceholder); } catch (e) {}
+
+            const fInfo = getStatusInfo(fileResult);
+            const fStatusEl = document.createElement('span');
+            fStatusEl.className = `status-badge ${fInfo.cls}`;
+            fStatusEl.textContent = fInfo.text;
+
+            const typeEl = document.createElement('span');
+            typeEl.textContent = mediaFetchResult.mimeType || '-';
+
+            const sizeEl = document.createElement('span');
+            sizeEl.textContent = mediaFetchResult.size ? formatBytes(mediaFetchResult.size) : '-';
+
+            const prevEl = document.createElement('div');
+            prevEl.className = 'cell-media';
+            if (mediaFetchResult.objectUrl) {
+                const thumb = document.createElement('img');
+                thumb.src = mediaFetchResult.objectUrl;
+                thumb.alt = 'Media preview';
+                thumb.className = 'media-thumb';
+                thumb.addEventListener('click', () => showMediaPreviewModal(mediaFetchResult.objectUrl, 'NFT Media'));
+                prevEl.appendChild(thumb);
+            } else {
+                prevEl.textContent = '-';
+            }
+
+            const fSumEl = document.createElement('div');
+            fSumEl.innerHTML = fileResult.scanned ? formatVtSummary(fileResult) : (fileResult.error || '-');
+            if (fileResult.rawAnalysis) {
+                const btn = createMagnifyButton(fileResult.rawAnalysis);
+                btn.classList.add('vt-inline-btn');
+                const vtWrap = document.createElement('span');
+                vtWrap.className = 'vt-details';
+                vtWrap.appendChild(document.createTextNode(' '));
+                vtWrap.appendChild(btn);
+                const vtLabel = document.createElement('span');
+                vtLabel.className = 'vt-label';
+                vtLabel.textContent = 'DETAIL';
+                vtWrap.appendChild(vtLabel);
+                fSumEl.appendChild(vtWrap);
+            }
+
+            const fDetailsEl = document.createElement('span');
+            fDetailsEl.textContent = '-';
+
+            populateVerticalRow(fTbody, fHeaders, [fStatusEl, typeEl, sizeEl, prevEl, fSumEl]);
 
             // Fail-fast: stop if file scan did not complete successfully
             if (fileResult.scanned !== true) {
@@ -1880,9 +2868,21 @@ async function runPipeline(rawUrl, externalSignal = null) {
             }
 
             if (fileResult.safe === false) {
+                // mark non-retryable because the file was flagged unsafe
+                fileStep.meta = fileStep.meta || {};
+                fileStep.meta.retryable = false;
                 setStepStatus(fileStep, 'error');
-                showScanErrorModal('A media file was flagged as potentially unsafe. The scan has been stopped.');
-                return;
+                const fileChoice = await showScanErrorModal('A media file was flagged as potentially unsafe. The scan has been stopped.', { flagged: true });
+                if (fileChoice === 'proceed') {
+                    // User chose to proceed — mark warning and continue
+                    setStepStatus(fileStep, 'warning');
+                    fileStep.body.insertAdjacentHTML('beforeend', '<p class="step-msg step-msg-warning">Proceed selected — continuing despite flagged result.</p>');
+                } else if (fileChoice === 'main') {
+                    navigateToHome();
+                    return;
+                } else {
+                    return;
+                }
             } else if (fileResult.scanned) {
                 setStepStatus(fileStep, 'success');
             } else {
@@ -1904,7 +2904,8 @@ async function runPipeline(rawUrl, externalSignal = null) {
     summaryCard.body.innerHTML = '<p>Scan of this metadata has been completed successfully!</p>';
 
     const summaryTable = document.createElement('table');
-    summaryTable.className = 'scan-table';
+    // compact summary table — narrower columns so it fits inside the card
+    summaryTable.className = 'scan-table scan-summary-table';
     const thead = document.createElement('thead');
     thead.innerHTML = '<tr><th>Scan Type</th><th>Total</th><th>Safe</th><th>Unsafe</th></tr>';
     summaryTable.appendChild(thead);

@@ -129,6 +129,16 @@ async function pollAnalysis(analysisId, apiKey, processId = null) {
         const status = analysisData?.data?.attributes?.status;
         if (processId) processLog(processId, 'info', `Analysis status: ${status}`, { attempt: attempt + 1 });
 
+        // If the analysis object already contains usable stats (either fresh
+        // stats or last_analysis_stats), we can return immediately instead of
+        // waiting for the full "completed" status and subsequent polls.
+        const statsAvailable = analysisData?.data?.attributes?.stats ?? analysisData?.data?.attributes?.last_analysis_stats ?? null;
+        if (statsAvailable) {
+            if (processId) processLog(processId, 'info', 'Analysis stats available (early return)', { attempt: attempt + 1 });
+            const isSafeEarly = (statsAvailable.malicious ?? 0) === 0 && (statsAvailable.suspicious ?? 0) === 0;
+            return { scanned: true, safe: isSafeEarly, stats: statsAvailable, rawAnalysis: analysisData };
+        }
+
         if (status === 'completed') {
             if (processId) processLog(processId, 'info', 'Analysis completed');
             break;
@@ -190,7 +200,10 @@ export async function scanURL(url, apiKey, externalSignal = null, options = {}) 
 
     if (submitErr) {
         logError('NetworkError', 'VirusTotal URL submission failed', { url, error: submitErr.message });
-        return { scanned: false, error: 'Could not reach VirusTotal. Scan skipped.' };
+        return {
+            scanned: false,
+            error: 'VirusTotal is currently unavailable; the scan will continue without VirusTotal. Results may be incomplete.'
+        };
     }
 
     // Handle HTTP 409 (AlreadyExists) specially: VirusTotal may return a

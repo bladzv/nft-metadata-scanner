@@ -60,7 +60,7 @@
     --transition-base: 250ms ease;
 
     /* Layout */
-    --container-max: 960px;
+    --container-max: 768px; /* reduced by 20% to make cards narrower */
     --header-height: 4rem;
     /* Standard control height used across inputs and buttons */
     --control-height: 48px;
