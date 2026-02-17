@@ -7,7 +7,6 @@
 </div>
 
 <p align="center">
-  <a href="https://bladzv.github.io/nft-metadata-scanner/"><img src="https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue.svg" alt="Live Demo"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://owasp.org/"><img src="https://img.shields.io/badge/OWASP-Top%2010%20Compliant-green.svg" alt="OWASP Compliant"></a>
 </p>
@@ -17,7 +16,6 @@ A client-side web application for secure validation and preview of NFT metadata.
 ## Table of Contents
 
 - [Features](#features)
-- [Live Demo](#live-demo)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Project Structure](#project-structure)
@@ -59,10 +57,6 @@ A client-side web application for secure validation and preview of NFT metadata.
 - **Modular Architecture**: ES6 modules for maintainable, scalable code
 - **Comprehensive Logging**: Structured error handling and security event logging
 - **Client-Side Processing**: No backend required, ensuring privacy and performance
-
-## Live Demo
-
-This project is hosted on GitHub Pages and can be accessed at: https://bladzv.github.io/nft-metadata-scanner/
 
 ## Why This Project?
 
@@ -141,7 +135,7 @@ nft-metadata-scanner/
 │   └── SECURITY.md                  # Security policy (template/reference)
 ├── .github/
 │   ├── copilot-instructions.md      # AI coding agent guidelines
-│   └── ai-instructions.md               # Detailed AI assistant instructions
+│   └── ai-instructions.md           # Detailed AI assistant instructions
 ├── LICENSE
 └── README.md
 ```
@@ -196,10 +190,7 @@ This is a **personal portfolio project** under active development, built collabo
 - [x] Responsive mobile-first UI
 - [x] Accessible pipeline status display
 - [x] Result caching (sessionStorage for quota)
-- [ ] Dark/light theme toggle
-- [ ] Comprehensive test suite
-- [x] GitHub Pages deployment
-- [ ] GitHub Actions CI/CD pipeline
+- [ ] Create an actual API endpoint for this tool for CLI integration (planned for future phase)
 
 ## Contributing
 
@@ -223,5 +214,4 @@ We welcome contributions to improve the NFT Metadata Scanner! This project demon
 - Additional NFT standards support
 - Enhanced security features
 - Performance optimizations
-- Internationalization (i18n)
 - Dark/light theme implementation

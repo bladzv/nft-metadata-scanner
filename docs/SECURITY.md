@@ -32,13 +32,13 @@ if (!['https:', 'ipfs:'].includes(url.protocol)) {
 ### A02:2021 - Cryptographic Failures
 **Mitigation:**
 - HTTPS enforced for all external requests
-- No sensitive data stored in localStorage or sessionStorage
-- API keys kept in memory only during active sessions
+- API keys are kept in memory by default; the user may optionally persist a validated API key to `localStorage` (explicit opt-in)
+- Non-sensitive caches (e.g. VirusTotal quota) stored in `sessionStorage` only
 
 **Implementation:**
 - All external URLs must use HTTPS
-- Sensitive data never persisted to disk
-- Secure defaults prevent accidental data exposure
+- API key persistence requires explicit user action and validation before storage; persisted keys are redacted in logs and can be removed via UI
+- Avoid saving API keys on shared/public devices; the application warns users about local persistence risks
 
 ### A03:2021 - Injection (XSS Prevention)
 **Mitigation:**
@@ -48,16 +48,17 @@ if (!['https:', 'ipfs:'].includes(url.protocol)) {
 
 **CSP Configuration:**
 ```html
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  script-src 'self';
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob: https:;
-  connect-src 'self' https://www.virustotal.com https://www.allorigins.win;
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-">
+<!-- Enforced via meta tag in `index.html` -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: https: blob:;
+               connect-src 'self' https:;
+               font-src 'self';
+               object-src 'none';
+               base-uri 'self';
+               form-action 'self';">
 ```
 
 **XSS Prevention:**
@@ -129,9 +130,9 @@ if (!contentType.includes('application/json')) {
 
 ### A09:2021 - Security Logging and Monitoring Failures
 **Mitigation:**
-- Structured security event logging
-- No sensitive data in log messages
-- Console logging for development debugging
+- Structured security event logging (process-level)
+- Sensitive values (API keys, auth headers) are redacted from logs by `process-logger.js`
+- Console logging for development debugging (no secrets emitted)
 
 **Logging Format:**
 ```javascript
@@ -171,10 +172,11 @@ console.error('[NFT-Scanner]', {
 - **Size Limits**: Prevent resource exhaustion attacks
 
 ### API Security
-- **Rate Limiting**: 4 requests per minute for VirusTotal
-- **Key Protection**: API keys never stored persistently
-- **Response Validation**: All API responses verified
-- **Error Handling**: Secure error messages
+- **Rate Limiting**: 4 requests per minute enforced client-side (sliding-window `RateLimiter`)
+- **Key Protection**: API keys held in memory by default; optional, user-consented persistence to `localStorage` after validation; persisted keys are redacted in logs and removable via UI
+- **Resilient Networking**: `fetch-with-retries` handles Retry-After, exponential backoff, jitter, and abort signals
+- **Response Validation**: All API responses verified and normalized
+- **Error Handling**: Secure, non-leaking user-facing messages
 
 ### Network Security
 - **HTTPS Only**: All external connections encrypted
@@ -268,16 +270,17 @@ We take security seriously. If you discover a security vulnerability in the NFT 
 ## Third-Party Services
 
 ### VirusTotal API
-- **Rate Limiting**: Respects API quotas
-- **Data Handling**: No user data sent to VirusTotal
-- **Privacy**: URL scanning only (no file uploads by default)
+- **Rate Limiting**: Client-side RateLimiter enforces quotas; server `Retry-After` honored via `fetch-with-retries`
+- **Data Handling**: Only the user-provided URL or explicitly uploaded media/file is sent to VirusTotal when a scan is initiated
+- **Privacy**: File uploads are supported but are optional and require a validated API key; users must opt in to uploads
+- **Caching**: Non-sensitive scan metadata and quota info cached in `sessionStorage` to reduce redundant API calls
 
-### CORS Proxy (allorigins.win, corsproxy.org)
-- **Fallback Only**: Used when direct requests fail
-- **Multiple Providers**: Automatic fallback between proxy services
-- **Trust Model**: Limited to JSON metadata requests
-- **Monitoring**: Request failures logged for analysis
-- **Timeout Handling**: 15-second timeout with user-friendly error messages
+### CORS Proxy (allorigins.win, corsproxy.org, corsproxy.io)
+- **Fallback Only**: Used when direct cross-origin requests fail
+- **Providers Used**: `api.allorigins.win`, `corsproxy.org`, `corsproxy.io` (metadata and quota fetch fallbacks)
+- **Trust Model**: Limited to fetching JSON metadata/quota information; do not use proxies for sensitive payloads
+- **Monitoring**: Failures are logged and surfaced to the user
+- **Timeout Handling**: 15-second request timeout enforced for proxy requests
 
 ## Compliance
 

@@ -45,14 +45,16 @@ The NFT Metadata Scanner is a client-side static web application built with vani
 - **sanitizer.js**: XSS-safe text and HTML sanitization
 - **error-handler.js**: Structured error logging and user-friendly messages
 - **ipfs-utils.js**: IPFS CID detection and gateway URL conversion
+- **process-logger.js**: Structured, redacting process-level logger used by UI and validators (redacts API keys and sensitive fields)
+- **fetch-with-retries.js**: Resilient network helper (Retry-After parsing, exponential backoff, jitter, abort support, optional rateLimiter integration)
 
 #### 3. Validators (`js/validators/`)
 - **url-validator.js**: URL format and security validation
 - **metadata-parser.js**: NFT standard detection and schema validation
-- **security-scanner.js**: VirusTotal API integration with rate limiting
+- **security-scanner.js**: VirusTotal API integration — includes a client-side `RateLimiter`, adaptive polling, and uses `fetch-with-retries` for resilient submissions and polling (exposes `scanURL`, `scanFile`, `scanMultipleUrls`, `getRateLimitStatus`)
 
 #### 4. Fetchers (`js/fetchers/`)
-- **metadata-fetcher.js**: JSON metadata retrieval with CORS fallback
+- **metadata-fetcher.js**: JSON metadata retrieval with CORS proxy fallbacks (allorigins.win, corsproxy.org, corsproxy.io) and IPFS gateway retry/fallback
 - **media-fetcher.js**: Media download with size/type validation
 
 #### 5. UI Components (`js/ui/`)
@@ -68,9 +70,9 @@ The NFT Metadata Scanner is a client-side static web application built with vani
    - Rejected if dangerous protocols or SSRF attempts
 
 2. **Security Scanning**
-   - URL submitted to VirusTotal API
-   - Rate limiting enforced (4 requests/minute)
-   - Results cached in sessionStorage
+   - URL submitted to VirusTotal API (user-initiated)
+   - Client-side RateLimiter enforces 4 requests/minute; `fetch-with-retries` honors server `Retry-After` and applies exponential backoff
+   - Non-sensitive results/quota cached in `sessionStorage` to reduce redundant requests
 
 3. **Metadata Retrieval**
    - Direct fetch attempt
@@ -107,9 +109,10 @@ The NFT Metadata Scanner is a client-side static web application built with vani
 - Safe media handling with blob URLs
 
 #### 4. API Security Layer
-- Client-side rate limiting
-- API key protection (memory-only storage)
-- Response validation
+- Client-side rate limiting (sliding-window `RateLimiter`)
+- API key handling: keys are held in memory by default; explicit user-consent is required to persist a validated key to `localStorage` (UI provides removal)
+- Resilient networking through `fetch-with-retries` (Retry-After/backoff/jitter)
+- Response validation and strict timeout controls
 
 ### Threat Mitigation
 
